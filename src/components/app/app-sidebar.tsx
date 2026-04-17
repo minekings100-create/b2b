@@ -73,6 +73,14 @@ export function AppSidebar({
             active={is("/invoices")}
             shortcut="gi"
           />
+          <SidebarItem
+            as="a"
+            href="/catalog"
+            icon={<Box className="h-4 w-4" />}
+            label="Catalog"
+            active={is("/catalog")}
+            shortcut="gc"
+          />
           {canApprove ? (
             <SidebarItem
               as="a"
@@ -111,13 +119,6 @@ export function AppSidebar({
         ) : null}
         {admin ? (
           <SidebarSection label="Admin">
-            <SidebarItem
-              as="a"
-              href="/catalog"
-              icon={<Box className="h-4 w-4" />}
-              label="Catalog"
-              active={is("/catalog")}
-            />
             <SidebarItem
               as="a"
               href="/users"
