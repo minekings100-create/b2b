@@ -7,6 +7,10 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests-e2e",
   fullyParallel: false,
+  // Run tests serially — Next's dev server compiles on-demand and can't keep
+  // up with 3 parallel workers hitting uncompiled routes at once, which
+  // surfaces as flaky `waitForURL("**/dashboard")` timeouts.
+  workers: 1,
   retries: 0,
   reporter: [["list"]],
   use: {

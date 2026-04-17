@@ -30,6 +30,24 @@ function unique() {
   return `e2e-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 }
 
+// Tests in this file create products with SKUs prefixed `E2E-`. The teardown
+// hard-deletes every matching row (and its audit_log entries) so they never
+// leak into the live catalog.
+test.afterAll(async () => {
+  const { data: victims } = await admin
+    .from("products")
+    .select("id")
+    .like("sku", "E2E-%");
+  const ids = (victims ?? []).map((v) => v.id);
+  if (ids.length === 0) return;
+  await admin
+    .from("audit_log")
+    .delete()
+    .eq("entity_type", "product")
+    .in("entity_id", ids);
+  await admin.from("products").delete().in("id", ids);
+});
+
 test.describe("Phase 2.2 admin product CRUD", () => {
   test("super admin can create, edit, and archive a product", async ({
     page,
@@ -42,11 +60,13 @@ test.describe("Phase 2.2 admin product CRUD", () => {
     await page.getByRole("link", { name: "New product" }).click();
     await expect(page).toHaveURL(/new=1/);
 
-    await page.getByLabel("SKU").fill(sku);
-    await page.getByLabel("Name").fill("E2E test product");
-    await page.getByLabel("Description").fill("Created by Playwright.");
-    await page.getByLabel("Unit price").fill("12.50");
-    await page.getByLabel("Min order qty").fill("1");
+    await page.getByLabel("SKU", { exact: true }).fill(sku);
+    await page.getByLabel("Name", { exact: true }).fill("E2E test product");
+    await page
+      .getByLabel("Description", { exact: true })
+      .fill("Created by Playwright.");
+    await page.getByLabel(/Unit price/).fill("12.50");
+    await page.getByLabel("Min order qty", { exact: true }).fill("1");
     await page.getByRole("button", { name: "Create" }).click();
 
     // After submit, we redirect to /catalog?pid=<id> — the detail drawer
@@ -78,7 +98,9 @@ test.describe("Phase 2.2 admin product CRUD", () => {
     await dialog.getByRole("link", { name: "Edit" }).click();
     await expect(page).toHaveURL(/eid=/);
     const editDialog = page.getByRole("dialog");
-    await editDialog.getByLabel("Name").fill("E2E test product (updated)");
+    await editDialog
+      .getByLabel("Name", { exact: true })
+      .fill("E2E test product (updated)");
     await editDialog.getByRole("button", { name: "Save" }).click();
 
     await page.waitForURL(/pid=/);
@@ -129,7 +151,7 @@ test.describe("Phase 2.2 admin product CRUD", () => {
   }) => {
     await signInAsBranchUser(page);
     await page.goto("/catalog?new=1");
-    // No form drawer should appear. The SKU label is form-specific.
-    await expect(page.getByLabel("SKU")).toHaveCount(0);
+    // No form drawer should appear. The "SKU" form label is exact-match only.
+    await expect(page.getByLabel("SKU", { exact: true })).toHaveCount(0);
   });
 });
