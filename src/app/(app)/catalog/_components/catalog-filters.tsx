@@ -8,6 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+function isTypingInEditable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (target.isContentEditable) return true;
+  return false;
+}
+
 /**
  * Controls the URL params that drive the server-side query:
  *   ?q=<term>&cat=<uuid>&stock=1&page=<n>
@@ -26,12 +34,40 @@ export function CatalogFilters({
   const [pending, startTransition] = useTransition();
   const initial = params.get("q") ?? "";
   const [q, setQ] = useState(initial);
+  const [isMac, setIsMac] = useState<boolean | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad|iPod/i.test(navigator.userAgent));
+  }, []);
 
   // Keep local state in sync with URL when server re-renders (e.g. page nav).
   useEffect(() => {
     setQ(params.get("q") ?? "");
   }, [params]);
+
+  // Keyboard shortcuts scoped to /catalog:
+  //   Ctrl/Cmd+F → focus search (preventDefault so browser find doesn't open)
+  //   /          → focus search (only when not already in another input)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (e.key === "/" && !isTypingInEditable(e.target)) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const currentCategory = params.get("cat") ?? "";
   const inStockOnly = params.get("stock") === "1";
@@ -100,9 +136,16 @@ export function CatalogFilters({
           aria-hidden
         />
         <Input
+          ref={searchRef}
           value={q}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search SKU or name"
+          placeholder={
+            isMac
+              ? "Search SKU or name  (⌘F)"
+              : isMac === false
+                ? "Search SKU or name  (Ctrl+F)"
+                : "Search SKU or name"
+          }
           aria-label="Search catalog"
           className="h-8 pl-8"
         />

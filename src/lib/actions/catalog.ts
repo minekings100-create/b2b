@@ -10,7 +10,41 @@ import {
   ProductCreateInput,
   ProductUpdateInput,
 } from "@/lib/validation/product";
-import type { Json } from "@/lib/supabase/types";
+import type { Json, Database } from "@/lib/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+const PRODUCT_IMAGES_BUCKET = "product-images";
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+
+async function uploadProductImage(
+  supabase: SupabaseClient<Database>,
+  file: File,
+): Promise<{ path: string } | { error: string }> {
+  if (file.size === 0) return { error: "Empty image file" };
+  if (file.size > MAX_IMAGE_BYTES) {
+    return { error: `Image must be ≤ ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB` };
+  }
+  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+    return { error: "Image must be PNG, JPEG, WebP or GIF" };
+  }
+  const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+  const path = `${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage
+    .from(PRODUCT_IMAGES_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type,
+    });
+  if (error) return { error: error.message };
+  return { path };
+}
 
 export type FormState =
   | { error: string; fieldErrors?: Record<string, string> }
@@ -43,7 +77,19 @@ export async function createProduct(
   }
 
   const supabase = createClient();
-  const insertRow = { ...parsed.data, active: true };
+
+  // Optional image upload.
+  let imagePath: string | null = null;
+  const maybeImage = formData.get("image");
+  if (maybeImage instanceof File && maybeImage.size > 0) {
+    const uploaded = await uploadProductImage(supabase, maybeImage);
+    if ("error" in uploaded) {
+      return { error: uploaded.error, fieldErrors: { image: uploaded.error } };
+    }
+    imagePath = uploaded.path;
+  }
+
+  const insertRow = { ...parsed.data, image_path: imagePath, active: true };
   const { data, error } = await supabase
     .from("products")
     .insert(insertRow)
@@ -65,7 +111,7 @@ export async function createProduct(
     action: "create",
     actor_user_id: session.user.id,
     before_json: null,
-    after_json: parsed.data as unknown as Json,
+    after_json: { ...parsed.data, image_path: imagePath } as unknown as Json,
   });
 
   revalidatePath("/catalog");
@@ -102,16 +148,28 @@ export async function updateProduct(
   const { data: prior } = await supabase
     .from("products")
     .select(
-      "sku, name, description, category_id, unit, unit_price_cents, vat_rate, min_order_qty, max_order_qty",
+      "sku, name, description, category_id, unit, unit_price_cents, vat_rate, min_order_qty, max_order_qty, image_path",
     )
     .eq("id", parsed.data.id)
     .is("deleted_at", null)
     .maybeSingle();
 
   const { id, ...patch } = parsed.data;
+
+  // Optional image upload — only replace image_path when a new file lands.
+  const patchWithImage: typeof patch & { image_path?: string } = { ...patch };
+  const maybeImage = formData.get("image");
+  if (maybeImage instanceof File && maybeImage.size > 0) {
+    const uploaded = await uploadProductImage(supabase, maybeImage);
+    if ("error" in uploaded) {
+      return { error: uploaded.error, fieldErrors: { image: uploaded.error } };
+    }
+    patchWithImage.image_path = uploaded.path;
+  }
+
   const { error } = await supabase
     .from("products")
-    .update(patch)
+    .update(patchWithImage)
     .eq("id", id)
     .is("deleted_at", null);
   if (error) {
@@ -130,7 +188,7 @@ export async function updateProduct(
     action: "update",
     actor_user_id: session.user.id,
     before_json: (prior ?? null) as unknown as Json,
-    after_json: patch as unknown as Json,
+    after_json: patchWithImage as unknown as Json,
   });
 
   revalidatePath("/catalog");

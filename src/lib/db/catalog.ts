@@ -2,6 +2,9 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 
+const PRODUCT_IMAGES_BUCKET = "product-images";
+const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
+
 export type CatalogProduct = {
   id: string;
   sku: string;
@@ -14,6 +17,8 @@ export type CatalogProduct = {
   max_order_qty: number | null;
   category_id: string | null;
   category_name: string | null;
+  image_path: string | null;
+  image_url: string | null;
   inventory: {
     quantity_on_hand: number;
     quantity_reserved: number;
@@ -47,6 +52,7 @@ type RawRow = {
   min_order_qty: number;
   max_order_qty: number | null;
   category_id: string | null;
+  image_path: string | null;
   product_categories: { name: string } | null;
   inventory:
     | {
@@ -57,6 +63,32 @@ type RawRow = {
       }[]
     | null;
 };
+
+/**
+ * Batch-sign storage paths for product images in a single round trip. Rows
+ * without a path get `null` back.
+ */
+async function signImagePaths(
+  paths: string[],
+): Promise<Map<string, string | null>> {
+  const unique = Array.from(new Set(paths.filter(Boolean)));
+  const map = new Map<string, string | null>();
+  if (unique.length === 0) return map;
+  const supabase = createClient();
+  const { data, error } = await supabase.storage
+    .from(PRODUCT_IMAGES_BUCKET)
+    .createSignedUrls(unique, SIGNED_URL_TTL_SECONDS);
+  if (error) {
+    // Signing failures shouldn't break the list — fall back to missing images.
+    console.error("signImagePaths failed", error);
+    for (const p of unique) map.set(p, null);
+    return map;
+  }
+  for (const entry of data ?? []) {
+    map.set(entry.path ?? "", entry.signedUrl ?? null);
+  }
+  return map;
+}
 
 /**
  * Fetch a page of catalog rows. Server Component only — relies on the
@@ -77,7 +109,7 @@ export async function fetchCatalogPage(
     .from("products")
     .select(
       `id, sku, name, description, unit, unit_price_cents, vat_rate,
-       min_order_qty, max_order_qty, category_id,
+       min_order_qty, max_order_qty, category_id, image_path,
        product_categories (name),
        inventory (quantity_on_hand, quantity_reserved, reorder_level, warehouse_location)`,
       { count: "exact" },
@@ -104,30 +136,35 @@ export async function fetchCatalogPage(
   const { data, error, count } = await builder;
   if (error) throw error;
 
-  const mapped: CatalogProduct[] = ((data ?? []) as unknown as RawRow[]).map(
-    (row) => {
-      const inv = row.inventory?.[0] ?? null;
-      const onHand = inv?.quantity_on_hand ?? 0;
-      const reserved = inv?.quantity_reserved ?? 0;
-      const available = Math.max(0, onHand - reserved);
-      return {
-        id: row.id,
-        sku: row.sku,
-        name: row.name,
-        description: row.description,
-        unit: row.unit,
-        unit_price_cents: row.unit_price_cents,
-        vat_rate: row.vat_rate,
-        min_order_qty: row.min_order_qty,
-        max_order_qty: row.max_order_qty,
-        category_id: row.category_id,
-        category_name: row.product_categories?.name ?? null,
-        inventory: inv,
-        available,
-        in_stock: available > 0,
-      };
-    },
+  const rawRows = (data ?? []) as unknown as RawRow[];
+  const signedUrlMap = await signImagePaths(
+    rawRows.map((r) => r.image_path).filter((p): p is string => Boolean(p)),
   );
+
+  const mapped: CatalogProduct[] = rawRows.map((row) => {
+    const inv = row.inventory?.[0] ?? null;
+    const onHand = inv?.quantity_on_hand ?? 0;
+    const reserved = inv?.quantity_reserved ?? 0;
+    const available = Math.max(0, onHand - reserved);
+    return {
+      id: row.id,
+      sku: row.sku,
+      name: row.name,
+      description: row.description,
+      unit: row.unit,
+      unit_price_cents: row.unit_price_cents,
+      vat_rate: row.vat_rate,
+      min_order_qty: row.min_order_qty,
+      max_order_qty: row.max_order_qty,
+      category_id: row.category_id,
+      category_name: row.product_categories?.name ?? null,
+      image_path: row.image_path,
+      image_url: row.image_path ? signedUrlMap.get(row.image_path) ?? null : null,
+      inventory: inv,
+      available,
+      in_stock: available > 0,
+    };
+  });
 
   const filtered = query.inStockOnly
     ? mapped.filter((p) => p.in_stock).slice(0, pageSize)
@@ -159,7 +196,7 @@ export async function fetchProductDetail(
     .from("products")
     .select(
       `id, sku, name, description, unit, unit_price_cents, vat_rate,
-       min_order_qty, max_order_qty, category_id,
+       min_order_qty, max_order_qty, category_id, image_path,
        product_categories (name),
        inventory (quantity_on_hand, quantity_reserved, reorder_level, warehouse_location),
        product_barcodes (id, barcode, unit_multiplier)`,
@@ -183,6 +220,8 @@ export async function fetchProductDetail(
   const reserved = inv?.quantity_reserved ?? 0;
   const available = Math.max(0, onHand - reserved);
 
+  const signedUrlMap = row.image_path ? await signImagePaths([row.image_path]) : null;
+
   return {
     id: row.id,
     sku: row.sku,
@@ -195,6 +234,11 @@ export async function fetchProductDetail(
     max_order_qty: row.max_order_qty,
     category_id: row.category_id,
     category_name: row.product_categories?.name ?? null,
+    image_path: row.image_path,
+    image_url:
+      row.image_path && signedUrlMap
+        ? signedUrlMap.get(row.image_path) ?? null
+        : null,
     inventory: inv,
     available,
     in_stock: available > 0,

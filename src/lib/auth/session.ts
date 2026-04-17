@@ -19,7 +19,7 @@ export const getUserWithRoles = cache(async () => {
   const [{ data: profile }, { data: roles }] = await Promise.all([
     supabase
       .from("users")
-      .select("id, email, full_name, phone, active, ui_theme")
+      .select("id, email, full_name, phone, active, ui_theme, ui_catalog_view")
       .eq("id", user.id)
       .maybeSingle(),
     supabase

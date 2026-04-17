@@ -67,6 +67,18 @@ export function ProductDetailDrawer({
       }
     >
       <div className="space-y-6">
+        {product.image_url ? (
+          <div className="overflow-hidden rounded-lg bg-surface-elevated ring-1 ring-inset ring-border">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={product.image_url}
+              alt={product.name}
+              className="aspect-video w-full object-cover"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        ) : null}
         <section>
           <p className="label-meta mb-1">Availability</p>
           <div className="flex flex-wrap items-center gap-2">

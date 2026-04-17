@@ -38,8 +38,27 @@ export function ProductForm({
 
   return (
     <>
-      <form action={formAction} className="space-y-5 pb-4">
+      <form
+        action={formAction}
+        className="space-y-5 pb-4"
+        encType="multipart/form-data"
+      >
         {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
+
+        <Field label="Image" name="image" error={fieldErrors.image} optional>
+          <input
+            id="image"
+            name="image"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="block w-full text-sm text-fg file:mr-3 file:h-8 file:rounded-md file:border-0 file:bg-surface-elevated file:px-3 file:py-1 file:text-xs file:font-medium file:text-fg hover:file:bg-surface-elevated/80"
+          />
+          {initial?.image_path ? (
+            <p className="text-xs text-fg-subtle">
+              Leave empty to keep the current image.
+            </p>
+          ) : null}
+        </Field>
 
         <Field label="SKU" name="sku" error={fieldErrors.sku}>
           <Input
