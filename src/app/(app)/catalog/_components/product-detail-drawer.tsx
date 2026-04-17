@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import type { ProductDetail } from "@/lib/db/catalog";
 import { formatCents } from "@/lib/money";
 import { StockPill } from "./stock-pill";
+import { AddToCart } from "./add-to-cart";
 
 /**
  * Wraps the base Drawer primitive with URL-param state. Opens when `?pid=`
@@ -20,9 +21,11 @@ import { StockPill } from "./stock-pill";
 export function ProductDetailDrawer({
   product,
   admin,
+  canOrder,
 }: {
   product: ProductDetail;
   admin: boolean;
+  canOrder: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -101,6 +104,8 @@ export function ProductDetailDrawer({
             </span>
           </div>
         </section>
+
+        {canOrder ? <AddToCart product={product} /> : null}
 
         {product.description ? (
           <section>
