@@ -156,6 +156,74 @@ test.describe("Phase 2.3 inventory + barcodes", () => {
     expect(bcGone.data?.deleted_at).not.toBeNull();
   });
 
+  test("adjust persists to DB AND reflects in the UI after drawer reopen", async ({
+    page,
+  }) => {
+    await signInAsSuper(page);
+
+    // Pick a seeded product (not an E2E-created one) so we exercise the
+    // realistic "inventory row already has on-hand stock" path — the exact
+    // case where the PostgREST array/object bug was masking the value.
+    const { data: target } = await admin
+      .from("products")
+      .select("id, sku")
+      .not("sku", "like", "E2E-%")
+      .limit(1)
+      .single();
+    const productId = target!.id;
+
+    const { data: before } = await admin
+      .from("inventory")
+      .select("quantity_on_hand")
+      .eq("product_id", productId)
+      .single();
+    const startOnHand = before!.quantity_on_hand;
+
+    await page.goto(`/catalog?eid=${productId}`);
+    const drawer = page.getByRole("dialog");
+    await expect(drawer).toBeVisible();
+
+    // Sanity: header shows the starting on-hand. Would fail under the bug
+    // because every product rendered "0 on hand" regardless of the DB.
+    await expect(drawer.getByText(`${startOnHand} on hand`)).toBeVisible();
+
+    // --- Adjust +10 ----------------------------------------------------
+    await drawer.getByLabel("Direction", { exact: true }).selectOption("in");
+    await drawer.getByLabel("Amount", { exact: true }).fill("10");
+    await drawer.getByRole("button", { name: "Adjust" }).click();
+    await expect(drawer.getByText("Adjusted")).toBeVisible();
+
+    const expected = startOnHand + 10;
+    const { data: after } = await admin
+      .from("inventory")
+      .select("quantity_on_hand")
+      .eq("product_id", productId)
+      .single();
+    expect(after?.quantity_on_hand).toBe(expected);
+
+    // Same drawer should re-render with the new value after revalidatePath.
+    await expect(drawer.getByText(`${expected} on hand`)).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Close + reopen — fresh server render must also show the new value.
+    await page.goto("/catalog");
+    await page.goto(`/catalog?eid=${productId}`);
+    const reopened = page.getByRole("dialog");
+    await expect(reopened).toBeVisible();
+    await expect(reopened.getByText(`${expected} on hand`)).toBeVisible();
+
+    // Reset the seeded product back via the same UI path so the test is
+    // idempotent across reruns.
+    await reopened.getByLabel("Direction", { exact: true }).selectOption("out");
+    await reopened.getByLabel("Amount", { exact: true }).fill("10");
+    await reopened.getByRole("button", { name: "Adjust" }).click();
+    await expect(reopened.getByText("Adjusted")).toBeVisible();
+    await expect(reopened.getByText(`${startOnHand} on hand`)).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
   test("branch user cannot access inventory adjust form", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("Email").first().fill("ams.user1@example.nl");
