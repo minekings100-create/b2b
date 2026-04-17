@@ -1,7 +1,7 @@
 import Link from "next/link";
+import { Box, Plus } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Box } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -18,9 +18,12 @@ import {
   fetchProductDetail,
 } from "@/lib/db/catalog";
 import { formatCents } from "@/lib/money";
+import { getUserWithRoles } from "@/lib/auth/session";
+import { isAdmin } from "@/lib/auth/roles";
 import { CatalogFilters } from "./_components/catalog-filters";
 import { StockPill } from "./_components/stock-pill";
 import { ProductDetailDrawer } from "./_components/product-detail-drawer";
+import { ProductFormDrawer } from "./_components/product-form-drawer";
 
 export const metadata = { title: "Catalog" };
 
@@ -30,6 +33,8 @@ type SearchParams = {
   stock?: string;
   page?: string;
   pid?: string;
+  new?: string;
+  eid?: string;
 };
 
 export default async function CatalogPage({
@@ -40,7 +45,8 @@ export default async function CatalogPage({
   const pageIdx = Number(searchParams.page ?? 0) || 0;
   const pageSize = 50;
 
-  const [categories, { rows, total }] = await Promise.all([
+  const [session, categories, { rows, total }] = await Promise.all([
+    getUserWithRoles(),
     fetchCatalogCategories(),
     fetchCatalogPage({
       q: searchParams.q,
@@ -50,10 +56,25 @@ export default async function CatalogPage({
       pageSize,
     }),
   ]);
+  const admin = session ? isAdmin(session.roles) : false;
 
   const selected = searchParams.pid
     ? await fetchProductDetail(searchParams.pid)
     : null;
+
+  // Admin-only form drawer — ignore `?new` / `?eid` for non-admins so a
+  // direct URL doesn't render the form.
+  const formMode: "create" | "edit" | null = admin
+    ? searchParams.new === "1"
+      ? "create"
+      : searchParams.eid
+        ? "edit"
+        : null
+    : null;
+  const formInitial =
+    formMode === "edit" && searchParams.eid
+      ? await fetchProductDetail(searchParams.eid)
+      : null;
 
   const hasPrev = pageIdx > 0;
   const hasNext = (pageIdx + 1) * pageSize < total;
@@ -82,6 +103,17 @@ export default async function CatalogPage({
       <PageHeader
         title="Catalog"
         description={`${total.toLocaleString("nl-NL")} SKUs available`}
+        actions={
+          admin ? (
+            <Link
+              href="/catalog?new=1"
+              className={cn(buttonVariants({ variant: "primary", size: "default" }))}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New product
+            </Link>
+          ) : null
+        }
       />
       <CatalogFilters categories={categories} />
 
@@ -203,7 +235,20 @@ export default async function CatalogPage({
         </>
       )}
 
-      {selected ? <ProductDetailDrawer product={selected} /> : null}
+      {selected ? (
+        <ProductDetailDrawer product={selected} admin={admin} />
+      ) : null}
+
+      {formMode === "create" ? (
+        <ProductFormDrawer mode="create" categories={categories} />
+      ) : null}
+      {formMode === "edit" && formInitial ? (
+        <ProductFormDrawer
+          mode="edit"
+          categories={categories}
+          initial={formInitial}
+        />
+      ) : null}
     </>
   );
 }
