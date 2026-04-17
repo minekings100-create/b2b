@@ -109,4 +109,24 @@ _(none yet)_
 
 ## Cross-cutting
 
-_(none yet)_
+### Archive / Restore UX pattern
+_Captured: 2026-04-18._
+
+Every entity that supports soft-delete today (`deleted_at` + `active=false`) is already reversible at the data level, but no screen exposes the restore path. This gap is **cross-cutting** — the same pattern should apply to every archivable entity.
+
+**Affects:** products, categories, branches, users — and suppliers once the proposed Phase 2.6 lands.
+
+**Pattern:**
+- Each list view gains a **"Show archived"** filter toggle (default off).
+- Archived rows render at **reduced opacity** and carry an **"Archived"** badge.
+- Each archived row has a **"Restore"** action (admin-only).
+- Restore clears `deleted_at`, sets `active = true`, writes an `audit_log` row with `action='restore'` (new action name; the tables already accept arbitrary action strings).
+- **Hard delete** remains a separate, rarely-used admin action for genuinely unwanted data (consent: type-to-confirm modal or similar).
+
+**Scope decision (deferred):** implement as a small dedicated phase between Phase 6 and Phase 7, or absorb into Phase 7 polish. Pick when we get there.
+
+**Design pointers:**
+- Keep the list toggle URL-driven (`?archived=1`) so the state survives refresh and is shareable.
+- Reuse existing tokens; the "Archived" badge should use `Badge variant="neutral" dot={false}` with 60–70% opacity on the row.
+- Per-entity Server Actions already return `{ success: true }` patterns that the restore actions can mirror.
+- Server Actions should re-check `isAdmin` plus the existing RLS policies; category and product RLS covers this already, branches/users need a review once implemented.
