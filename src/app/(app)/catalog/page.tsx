@@ -10,7 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   fetchCatalogCategories,
   fetchCatalogPage,
@@ -174,24 +175,28 @@ export default async function CatalogPage({
                 of <span className="font-numeric text-fg">{total}</span>
               </span>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  asChild
-                  disabled={!hasPrev}
+                <Link
+                  href={hasPrev ? makeHref(pageIdx - 1) : "#"}
                   aria-disabled={!hasPrev}
+                  tabIndex={hasPrev ? 0 : -1}
+                  className={cn(
+                    buttonVariants({ variant: "secondary", size: "sm" }),
+                    !hasPrev && "pointer-events-none opacity-50",
+                  )}
                 >
-                  <Link href={hasPrev ? makeHref(pageIdx - 1) : "#"}>Previous</Link>
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  asChild
-                  disabled={!hasNext}
+                  Previous
+                </Link>
+                <Link
+                  href={hasNext ? makeHref(pageIdx + 1) : "#"}
                   aria-disabled={!hasNext}
+                  tabIndex={hasNext ? 0 : -1}
+                  className={cn(
+                    buttonVariants({ variant: "secondary", size: "sm" }),
+                    !hasNext && "pointer-events-none opacity-50",
+                  )}
                 >
-                  <Link href={hasNext ? makeHref(pageIdx + 1) : "#"}>Next</Link>
-                </Button>
+                  Next
+                </Link>
               </div>
             </div>
           )}
