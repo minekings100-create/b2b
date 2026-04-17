@@ -293,6 +293,9 @@ Side paths: `submitted → rejected`; from any pre-shipped state → `cancelled`
 ### Phase 1 — Foundation
 Next.js + Supabase scaffolding, auth (email/password + magic link), `users` / `branches` / `user_branch_roles` with RLS, seed data (5 branches, 20 users across roles, 500 mock products across 10 categories), base layout with sidebar + theming (light/dark, system default), empty dashboard shells for all roles, command palette skeleton.
 
+### Phase 1.5 — Schema scaffolding (accepted scope adjustment, 2026-04-17)
+**Schema-only** landing of every remaining §6 table so demo data can be seeded end-to-end for visual review before feature work begins. Adds: `product_barcodes`, `inventory`, `inventory_movements`, `orders`, `order_items`, `pallets`, `pallet_items`, `shipments`, `shipment_pallets`, `invoices`, `invoice_items`, `payments`, `returns`, `return_items`, `notifications`. Each table ships with the RLS policies required by §5 and `updated_at` / `audit_log` wiring where the §6 spec calls for it. **No Server Actions, no UI, no business logic.** Features still ship per Phases 2–6 below — each of those phases now starts from an existing schema rather than creating its own tables. A companion `npm run seed:demo` populates every table with representative data across all statuses for visual QA.
+
 ### Phase 2 — Catalog & inventory
 `products`, `product_categories`, `product_barcodes`, `inventory`, `inventory_movements`. Admin catalog CRUD + CSV import. Branch catalog browse with search + category filter + in-stock toggle.
 
