@@ -19,7 +19,7 @@ import {
 } from "@/lib/db/catalog";
 import { formatCents } from "@/lib/money";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { isAdmin } from "@/lib/auth/roles";
+import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
 import { CatalogFilters } from "./_components/catalog-filters";
 import { StockPill } from "./_components/stock-pill";
 import { ProductDetailDrawer } from "./_components/product-detail-drawer";
@@ -60,6 +60,9 @@ export default async function CatalogPage({
     }),
   ]);
   const admin = session ? isAdmin(session.roles) : false;
+  const canOrder = session
+    ? hasAnyRole(session.roles, ["branch_user", "branch_manager"])
+    : false;
   const viewMode: "table" | "grid" =
     session?.profile?.ui_catalog_view === "grid" ? "grid" : "table";
 
@@ -270,7 +273,11 @@ export default async function CatalogPage({
       )}
 
       {selected ? (
-        <ProductDetailDrawer product={selected} admin={admin} />
+        <ProductDetailDrawer
+          product={selected}
+          admin={admin}
+          canOrder={canOrder}
+        />
       ) : null}
 
       {formMode === "create" ? (

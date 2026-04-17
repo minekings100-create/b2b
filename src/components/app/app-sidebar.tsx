@@ -7,6 +7,7 @@ import {
   Home,
   Inbox,
   Package,
+  ShoppingBag,
   ShoppingCart,
   Truck,
   Users,
@@ -33,6 +34,7 @@ export function AppSidebar({
   email: string;
 }) {
   const pathname = usePathname();
+  const canOrder = hasAnyRole(roles, ["branch_user", "branch_manager"]);
   const canApprove = hasAnyRole(roles, ["branch_manager"]);
   const canPack = hasAnyRole(roles, ["packer"]);
   const admin = isAdmin(roles);
@@ -81,6 +83,15 @@ export function AppSidebar({
             active={is("/catalog")}
             shortcut="gc"
           />
+          {canOrder ? (
+            <SidebarItem
+              as="a"
+              href="/cart"
+              icon={<ShoppingBag className="h-4 w-4" />}
+              label="Cart"
+              active={is("/cart")}
+            />
+          ) : null}
           {canApprove ? (
             <SidebarItem
               as="a"
