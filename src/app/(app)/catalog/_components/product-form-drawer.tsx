@@ -5,6 +5,9 @@ import { useMemo } from "react";
 import { Drawer } from "@/components/ui/drawer";
 import type { CatalogCategory, ProductDetail } from "@/lib/db/catalog";
 import { ProductForm } from "./product-form";
+import { InventorySection } from "./inventory-section";
+import { BarcodesSection } from "./barcodes-section";
+import { ArchiveSection } from "./archive-section";
 
 type Mode = "create" | "edit";
 
@@ -42,7 +45,16 @@ export function ProductFormDrawer({
       title={mode === "create" ? "New product" : `Edit · ${initial?.sku ?? ""}`}
       widthClassName="w-full max-w-lg"
     >
-      <ProductForm mode={mode} categories={categories} initial={initial} />
+      <div className="space-y-8">
+        <ProductForm mode={mode} categories={categories} initial={initial} />
+        {mode === "edit" && initial ? (
+          <>
+            <InventorySection product={initial} />
+            <BarcodesSection productId={initial.id} initial={initial.barcodes} />
+            <ArchiveSection id={initial.id} />
+          </>
+        ) : null}
+      </div>
     </Drawer>
   );
 }
