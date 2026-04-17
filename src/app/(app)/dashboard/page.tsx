@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui/page-header";
 import { isAdmin, hasAnyRole } from "@/lib/auth/roles";
@@ -9,7 +10,11 @@ import { PackerDashboard } from "./_components/packer-dashboard";
 export const metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
-  const session = (await getUserWithRoles())!;
+  // The (app) layout also guards, but Next renders layout and page in
+  // parallel — the page can start executing before the layout's redirect
+  // short-circuits the tree. Re-check here.
+  const session = await getUserWithRoles();
+  if (!session) redirect("/login");
 
   // Priority: super_admin / administration → branch_manager → packer → branch_user
   const picked = isAdmin(session.roles)

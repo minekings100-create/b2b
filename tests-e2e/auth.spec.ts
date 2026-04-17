@@ -42,7 +42,9 @@ test.describe("auth", () => {
 
     await page.waitForURL("**/dashboard", { timeout: 10_000 });
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText(email, { exact: false })).toBeVisible();
+    // 1.3 renders the email in both the sidebar user menu and the page
+    // header, so scope the assertion to the header copy.
+    await expect(page.getByText(`Signed in as ${email}`)).toBeVisible();
   });
 
   test("invalid password shows inline error", async ({ page }) => {
