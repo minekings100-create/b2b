@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { Kbd } from "./kbd";
@@ -160,9 +161,21 @@ export const SidebarItem = React.forwardRef<HTMLButtonElement, SidebarItemProps>
     );
 
     if (as === "a") {
+      // Use Next's Link for client-side navigation. Falls back to a plain
+      // anchor when href is missing (should not happen in practice).
+      if (href) {
+        return (
+          <Link
+            href={href}
+            className={classes}
+            aria-current={active ? "page" : undefined}
+          >
+            {inner}
+          </Link>
+        );
+      }
       return (
         <a
-          href={href}
           className={classes}
           aria-current={active ? "page" : undefined}
         >
