@@ -54,12 +54,19 @@ export function OutstandingBlockBanner({
         <Input
           name="confirm_override"
           value={override}
-          onChange={(e) => setOverride(e.target.value)}
+          // Normalise at the source so the state matches what the
+          // `uppercase` Tailwind class displays — otherwise typing
+          // "confirm" would look like CONFIRM on-screen but keep the
+          // submit button disabled.
+          onChange={(e) => setOverride(e.target.value.toUpperCase())}
           placeholder="Type CONFIRM"
           className="h-8 max-w-[160px] font-numeric uppercase"
           aria-label="Confirmation phrase"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
         />
-        <OverrideBtn disabled={override !== "CONFIRM"} />
+        <OverrideBtn disabled={override.trim().toUpperCase() !== "CONFIRM"} />
       </form>
     </div>
   );

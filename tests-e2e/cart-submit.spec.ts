@@ -136,6 +136,100 @@ test.describe("Phase 3.1 cart + submit", () => {
     expect(actions).toContain("submit");
   });
 
+  test("lowercase 'confirm' still enables Submit anyway (input normalises)", async ({
+    page,
+  }) => {
+    await signIn(page, TEST_EMAIL);
+    const uid = (await userId(TEST_EMAIL))!;
+
+    await page.goto("/catalog");
+    await page.locator("tbody tr a").first().click();
+    await page.waitForURL(/pid=/);
+    const drawer = page.getByRole("dialog");
+    await drawer.getByLabel("Quantity", { exact: true }).fill("1");
+    await drawer.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(drawer.getByText(/Added —/)).toBeVisible({ timeout: 10_000 });
+
+    await page.goto("/cart");
+    await page.getByRole("button", { name: "Submit order" }).click();
+    await page.waitForURL(/block=outstanding/, { timeout: 15_000 });
+
+    // Type *lowercase* — the input's onChange must uppercase it so the
+    // state matches the CSS text-transform; button must enable.
+    const input = page.getByLabel("Confirmation phrase");
+    await input.fill("confirm");
+    // React's controlled-input normalisation writes "CONFIRM" back.
+    await expect(input).toHaveValue("CONFIRM");
+
+    const submitAnyway = page.getByRole("button", { name: "Submit anyway" });
+    await expect(submitAnyway).toBeEnabled();
+    await submitAnyway.click();
+
+    await page.waitForURL("**/orders", { timeout: 15_000 });
+
+    // Audit payload records the override.
+    const { data: orderRow } = await admin
+      .from("orders")
+      .select("id, status")
+      .eq("created_by_user_id", uid)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    expect(orderRow?.status).toBe("submitted");
+
+    const { data: audit } = await admin
+      .from("audit_log")
+      .select("after_json")
+      .eq("entity_type", "order")
+      .eq("entity_id", orderRow!.id)
+      .eq("action", "submit")
+      .single();
+    const payload = audit?.after_json as
+      | { override_outstanding?: boolean }
+      | null;
+    expect(payload?.override_outstanding).toBe(true);
+  });
+
+  test("line total updates optimistically as the user types", async ({
+    page,
+  }) => {
+    await signIn(page, TEST_EMAIL);
+
+    await page.goto("/catalog");
+    await page.locator("tbody tr a").first().click();
+    await page.waitForURL(/pid=/);
+    const drawer = page.getByRole("dialog");
+    await drawer.getByLabel("Quantity", { exact: true }).fill("2");
+    await drawer.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(drawer.getByText(/Added —/)).toBeVisible({ timeout: 10_000 });
+
+    await page.goto("/cart");
+
+    // Capture the unit price shown in the "Price" cell of the only row.
+    const priceCellText = (
+      await page
+        .locator("tbody tr")
+        .first()
+        .locator("td")
+        .nth(3)
+        .innerText()
+    ).trim();
+    const unitPrice = Number.parseFloat(
+      priceCellText.replace(/[^\d,.-]/g, "").replace(",", "."),
+    );
+    expect(Number.isFinite(unitPrice)).toBe(true);
+
+    // Starting line total = 2 × unit price.
+    const qtyInput = page.locator('input[type="number"]').first();
+    await expect(qtyInput).toHaveValue("2");
+
+    // Type a new qty but *don't* click Save — line total should update anyway.
+    await qtyInput.fill("7");
+    const expectedTotalStr = (7 * unitPrice).toFixed(2).replace(".", ",");
+    const lineCell = page.locator("tbody tr").first().locator("td").nth(6);
+    await expect(lineCell).toContainText(expectedTotalStr);
+  });
+
   test("remove a cart line clears the cart", async ({ page }) => {
     await signIn(page, TEST_EMAIL);
 

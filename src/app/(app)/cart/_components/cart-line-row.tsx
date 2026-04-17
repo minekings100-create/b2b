@@ -49,6 +49,17 @@ export function CartLineRow({ line }: { line: CartLine }) {
     (rmState && "error" in rmState && rmState.error) ||
     null;
 
+  // Optimistic line total — mirrors what the server will commit on save so
+  // the figure updates as the user types. If the local input is blank or
+  // non-numeric we fall back to the server-authoritative value so the row
+  // never flashes a misleading total.
+  const typedQty = Number.parseInt(qty, 10);
+  const optimisticTotal =
+    Number.isFinite(typedQty) && typedQty > 0
+      ? typedQty * line.unit_price_cents_snapshot
+      : line.line_net_cents;
+  const isOptimistic = typedQty !== line.quantity_requested;
+
   return (
     <TableRow>
       <TableCell className="font-numeric text-fg-muted">{line.sku}</TableCell>
@@ -74,7 +85,9 @@ export function CartLineRow({ line }: { line: CartLine }) {
           <SaveBtn />
         </form>
       </TableCell>
-      <TableCell numeric>{formatCents(line.line_net_cents)}</TableCell>
+      <TableCell numeric className={isOptimistic ? "text-fg-muted" : undefined}>
+        {formatCents(optimisticTotal)}
+      </TableCell>
       <TableCell>
         <form action={rmAction}>
           <input type="hidden" name="item_id" value={line.id} />
