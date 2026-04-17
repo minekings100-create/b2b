@@ -15,7 +15,8 @@
     "db:push": "supabase db push --linked",
     "db:reset": "supabase db reset --linked",
     "db:types": "supabase gen types typescript --linked --schema public | grep -v -e '^WARN:' -e '^A new version of Supabase CLI' -e '^We recommend updating' > src/lib/supabase/types.ts",
-    "seed": "tsx --env-file=.env.local scripts/seed.ts"
+    "seed": "tsx --env-file=.env.local scripts/seed.ts",
+    "seed:demo": "tsx --env-file=.env.local scripts/seed.demo.ts"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.0",
