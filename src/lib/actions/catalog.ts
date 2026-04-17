@@ -105,6 +105,21 @@ export async function createProduct(
     return { error: error.message };
   }
 
+  // Seed an inventory row alongside the product so the catalog queries have
+  // something to join against. Any later adjustInventory call will update
+  // the same row rather than create a second one.
+  const { error: invErr } = await supabase.from("inventory").insert({
+    product_id: data.id,
+    quantity_on_hand: 0,
+    quantity_reserved: 0,
+    reorder_level: 0,
+  });
+  if (invErr && invErr.code !== "23505") {
+    // duplicate-key = another request got here first, ignore; anything else
+    // we log but don't fail the create.
+    console.error("inventory seed failed", invErr);
+  }
+
   await writeAudit({
     entity_type: "product",
     entity_id: data.id,
