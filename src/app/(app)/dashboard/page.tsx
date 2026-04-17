@@ -1,65 +1,37 @@
-import { redirect } from "next/navigation";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui/page-header";
-import { Badge } from "@/components/ui/badge";
+import { isAdmin, hasAnyRole } from "@/lib/auth/roles";
+import { AdminDashboard } from "./_components/admin-dashboard";
+import { BranchManagerDashboard } from "./_components/branch-manager-dashboard";
+import { BranchUserDashboard } from "./_components/branch-user-dashboard";
+import { PackerDashboard } from "./_components/packer-dashboard";
 
 export const metadata = { title: "Dashboard" };
 
-/**
- * Minimal landing for Phase 1.2 — just proves the session + role query
- * works end-to-end. 1.3 replaces this with role-aware content and the
- * `_components/*-dashboard.tsx` split.
- *
- * Defensive: the (app) layout also guards, but Next.js renders layout and
- * page in parallel, so the page can start executing before the layout's
- * redirect short-circuits the tree.
- */
 export default async function DashboardPage() {
-  const session = await getUserWithRoles();
-  if (!session) redirect("/login");
+  const session = (await getUserWithRoles())!;
+
+  // Priority: super_admin / administration → branch_manager → packer → branch_user
+  const picked = isAdmin(session.roles)
+    ? "admin"
+    : hasAnyRole(session.roles, ["branch_manager"])
+      ? "manager"
+      : hasAnyRole(session.roles, ["packer"])
+        ? "packer"
+        : "user";
 
   return (
-    <div className="min-h-screen">
+    <>
       <PageHeader
         title="Dashboard"
         description={`Signed in as ${session.user.email}`}
-        actions={
-          <form action="/logout" method="post">
-            <button
-              type="submit"
-              className="inline-flex h-8 items-center rounded-md bg-surface px-3 text-sm font-medium text-fg ring-1 ring-inset ring-border hover:bg-surface-elevated hover:ring-border-strong transition-colors"
-            >
-              Sign out
-            </button>
-          </form>
-        }
       />
-      <div className="flex flex-col gap-4 px-gutter py-6">
-        <p className="text-sm text-fg-muted">
-          Role-aware dashboards land in sub-milestone 1.3. For now, this page
-          just verifies the login redirect and session query work end-to-end.
-        </p>
-        <div className="rounded-lg ring-1 ring-border bg-surface p-4 space-y-3">
-          <p className="label-meta">Your role assignments</p>
-          {session.roles.length === 0 ? (
-            <p className="text-sm text-fg-muted">
-              No role assignments yet. Seed data (5 branches, 20 users across
-              every role) ships in sub-milestone 1.4.
-            </p>
-          ) : (
-            <ul className="flex flex-wrap gap-2">
-              {session.roles.map((r, i) => (
-                <li key={`${r.role}-${r.branch_id ?? "global"}-${i}`}>
-                  <Badge variant="accent" dot={false}>
-                    {r.role.replace(/_/g, " ")}
-                    {r.branch_id ? ` · ${r.branch_id.slice(0, 8)}` : ""}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      <div className="px-gutter py-6">
+        {picked === "admin" ? <AdminDashboard /> : null}
+        {picked === "manager" ? <BranchManagerDashboard /> : null}
+        {picked === "packer" ? <PackerDashboard /> : null}
+        {picked === "user" ? <BranchUserDashboard /> : null}
       </div>
-    </div>
+    </>
   );
 }
