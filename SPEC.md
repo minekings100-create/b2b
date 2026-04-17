@@ -216,11 +216,12 @@ Side paths: `submitted → rejected`; from any pre-shipped state → `cancelled`
 ### 8.3 Picking & Packing (Packer, tablet-first)
 1. Packer sees queue of `approved` orders, priority = oldest `approved_at`.
 2. Open order → pick list with bin locations, sorted by location for efficient walking.
-3. Scan input auto-focused; packer scans product barcode → matches open line, increments `quantity_packed` by `unit_multiplier`. Over-scan triggers confirm dialog.
-4. Manual fallback: tap line, enter quantity.
-5. Items are assigned to a **pallet** — either the currently open pallet for this order, or a new pallet (auto-numbered).
-6. Closing a pallet sets its status to `packed` and generates a **pallet label PDF**: QR of pallet_number, human-readable pallet_number, order number, branch name, item count. Printable.
-7. Order becomes `packed` when all approved-quantity items are accounted for across one or more pallets. Inventory moves from reserved → deducted from `quantity_on_hand`.
+3. Tapping/clicking an item **expands an inline detail panel in-place** (no modal, no navigation) showing the barcode rendered both scannable and as text, the warehouse location prominently (e.g. "Row B – Shelf 9"), and optionally a small product thumbnail. Fast transition; nearest-neighbour only — one expanded row at a time.
+4. Scan input auto-focused; packer scans product barcode → matches open line, increments `quantity_packed` by `unit_multiplier`. Over-scan triggers confirm dialog.
+5. Manual fallback: tap line, enter quantity.
+6. Items are assigned to a **pallet** — either the currently open pallet for this order, or a new pallet (auto-numbered).
+7. Closing a pallet sets its status to `packed` and generates a **pallet label PDF**: QR of pallet_number, human-readable pallet_number, order number, branch name, item count. Printable.
+8. Order becomes `packed` when all approved-quantity items are accounted for across one or more pallets. Inventory moves from reserved → deducted from `quantity_on_hand`.
 
 ### 8.4 Shipping
 1. Admin/super assigns pallets to a **shipment**, enters carrier + tracking. Status `shipped`.
