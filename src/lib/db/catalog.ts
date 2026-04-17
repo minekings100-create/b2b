@@ -41,6 +41,13 @@ export type CatalogQuery = {
   pageSize?: number;
 };
 
+type RawInventory = {
+  quantity_on_hand: number;
+  quantity_reserved: number;
+  reorder_level: number;
+  warehouse_location: string | null;
+};
+
 type RawRow = {
   id: string;
   sku: string;
@@ -54,15 +61,20 @@ type RawRow = {
   category_id: string | null;
   image_path: string | null;
   product_categories: { name: string } | null;
-  inventory:
-    | {
-        quantity_on_hand: number;
-        quantity_reserved: number;
-        reorder_level: number;
-        warehouse_location: string | null;
-      }[]
-    | null;
+  // PostgREST returns a single object for 1:1 relationships (inventory's
+  // FK on product_id is unique). When there is no matching row, it may
+  // come back as either `null` or an empty array depending on the client
+  // version, so `normalizeInventory` handles both.
+  inventory: RawInventory | RawInventory[] | null;
 };
+
+function normalizeInventory(
+  raw: RawInventory | RawInventory[] | null | undefined,
+): RawInventory | null {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw[0] ?? null;
+  return raw;
+}
 
 /**
  * Batch-sign storage paths for product images in a single round trip. Rows
@@ -142,7 +154,7 @@ export async function fetchCatalogPage(
   );
 
   const mapped: CatalogProduct[] = rawRows.map((row) => {
-    const inv = row.inventory?.[0] ?? null;
+    const inv = normalizeInventory(row.inventory);
     const onHand = inv?.quantity_on_hand ?? 0;
     const reserved = inv?.quantity_reserved ?? 0;
     const available = Math.max(0, onHand - reserved);
@@ -215,7 +227,7 @@ export async function fetchProductDetail(
       deleted_at?: string | null;
     }[];
   };
-  const inv = row.inventory?.[0] ?? null;
+  const inv = normalizeInventory(row.inventory);
   const onHand = inv?.quantity_on_hand ?? 0;
   const reserved = inv?.quantity_reserved ?? 0;
   const available = Math.max(0, onHand - reserved);
