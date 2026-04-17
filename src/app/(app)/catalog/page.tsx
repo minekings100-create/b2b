@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Box, Plus } from "lucide-react";
+import { Box, Plus, Upload } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -112,13 +112,22 @@ export default async function CatalogPage({
           <div className="flex items-center gap-2">
             <ViewToggle current={viewMode} />
             {admin ? (
-              <Link
-                href="/catalog?new=1"
-                className={cn(buttonVariants({ variant: "primary", size: "default" }))}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New product
-              </Link>
+              <>
+                <Link
+                  href="/catalog/import"
+                  className={cn(buttonVariants({ variant: "secondary", size: "default" }))}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Import CSV
+                </Link>
+                <Link
+                  href="/catalog?new=1"
+                  className={cn(buttonVariants({ variant: "primary", size: "default" }))}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  New product
+                </Link>
+              </>
             ) : null}
           </div>
         }
