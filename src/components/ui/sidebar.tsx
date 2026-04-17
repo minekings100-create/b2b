@@ -95,14 +95,14 @@ export function SidebarSection({
 
 const itemVariants = cva(
   [
-    "group/item relative flex items-center rounded-md text-sm font-medium",
+    "group/item relative flex items-center rounded-md text-sm font-medium tracking-[-0.005em]",
     "transition-[background-color,color] duration-150 ease-out",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
   ],
   {
     variants: {
       active: {
-        true: "bg-accent-subtle/60 text-accent-subtle-fg",
+        true: "bg-accent-subtle/70 text-accent-subtle-fg",
         false: "text-fg-muted hover:bg-surface-elevated hover:text-fg",
       },
     },
@@ -129,7 +129,7 @@ export const SidebarItem = React.forwardRef<HTMLButtonElement, SidebarItemProps>
         {active ? (
           <span
             aria-hidden
-            className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-md bg-accent"
+            className="absolute left-0 top-1 bottom-1 w-[2.5px] rounded-r-full bg-accent"
           />
         ) : null}
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-fg-subtle group-hover/item:text-fg">

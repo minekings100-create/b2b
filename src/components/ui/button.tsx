@@ -12,33 +12,35 @@ import { cn } from "@/lib/utils";
 const buttonVariants = cva(
   [
     "inline-flex items-center justify-center gap-1.5 whitespace-nowrap",
-    "rounded-md font-medium select-none",
-    "transition-[background-color,color,box-shadow,opacity] duration-150 ease-out",
+    "rounded-md font-medium select-none tracking-[-0.005em]",
+    "transition-[background-color,color,box-shadow,transform,opacity] duration-150 ease-out",
     "disabled:cursor-not-allowed disabled:opacity-50",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-0",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
   ],
   {
     variants: {
       variant: {
         primary: [
           "bg-accent text-accent-fg",
+          "shadow-[inset_0_-1px_0_0_rgb(0_0_0/0.14),inset_0_1px_0_0_rgb(255_255_255/0.08)]",
           "hover:bg-accent-hover",
-          "active:bg-accent-hover active:scale-[0.99]",
+          "active:bg-accent-hover active:scale-[0.99] active:shadow-[inset_0_1px_0_0_rgb(0_0_0/0.14)]",
         ],
         secondary: [
-          "bg-surface text-fg ring-1 ring-border",
+          "bg-surface text-fg ring-1 ring-inset ring-border",
           "hover:bg-surface-elevated hover:ring-border-strong",
           "active:bg-surface-elevated active:scale-[0.99]",
         ],
         ghost: [
-          "bg-transparent text-fg",
-          "hover:bg-surface-elevated",
+          "bg-transparent text-fg-muted",
+          "hover:bg-surface-elevated hover:text-fg",
           "active:bg-surface-elevated active:scale-[0.99]",
         ],
         danger: [
           "bg-danger text-white",
+          "shadow-[inset_0_-1px_0_0_rgb(0_0_0/0.18),inset_0_1px_0_0_rgb(255_255_255/0.08)]",
           "hover:bg-danger/90",
-          "active:bg-danger/90 active:scale-[0.99]",
+          "active:bg-danger/90 active:scale-[0.99] active:shadow-[inset_0_1px_0_0_rgb(0_0_0/0.18)]",
         ],
       },
       size: {

@@ -197,41 +197,103 @@ export function ControlsSection() {
       <Section
         id="kbd"
         title="Keyboard hints"
-        description="Displayed next to command palette entries and menu items (SPEC §4 keyboard-first)."
+        description="Shown next to command palette entries and menu items (SPEC §4 keyboard-first). Modifier keys vary by platform — the app should render the one matching the user's OS."
       >
-        <div className="flex flex-col gap-3 rounded-lg ring-1 ring-border p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Open command palette</span>
-            <span className="flex items-center gap-1">
-              <Kbd>⌘</Kbd>
-              <Kbd>K</Kbd>
-            </span>
+        <div className="overflow-hidden rounded-lg ring-1 ring-border">
+          <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 border-b border-border bg-surface-elevated/40 px-4 py-2 text-[10px] font-medium uppercase tracking-[0.08em] text-fg-muted">
+            <span>Action</span>
+            <span>macOS</span>
+            <span>Windows / Linux</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Go to orders</span>
-            <span className="flex items-center gap-1">
-              <Kbd>g</Kbd>
-              <Kbd>o</Kbd>
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Next / previous row</span>
-            <span className="flex items-center gap-1">
-              <Kbd>j</Kbd>
-              <span className="text-xs text-fg-subtle">/</span>
-              <Kbd>k</Kbd>
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Confirm</span>
-            <span className="flex items-center gap-1">
-              <Kbd>
-                <Check className="h-2.5 w-2.5" />
-              </Kbd>
-              <Kbd>↵</Kbd>
-            </span>
+          <div className="divide-y divide-border">
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Open command palette</span>
+              <span className="flex items-center gap-1">
+                <Kbd>⌘</Kbd>
+                <Kbd>K</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>Ctrl</Kbd>
+                <Kbd>K</Kbd>
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Go to orders</span>
+              <span className="flex items-center gap-1">
+                <Kbd>g</Kbd>
+                <Kbd>o</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>g</Kbd>
+                <Kbd>o</Kbd>
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Go to invoices</span>
+              <span className="flex items-center gap-1">
+                <Kbd>g</Kbd>
+                <Kbd>i</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>g</Kbd>
+                <Kbd>i</Kbd>
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Go to pack queue</span>
+              <span className="flex items-center gap-1">
+                <Kbd>g</Kbd>
+                <Kbd>p</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>g</Kbd>
+                <Kbd>p</Kbd>
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Next / previous row</span>
+              <span className="flex items-center gap-1">
+                <Kbd>j</Kbd>
+                <span className="text-xs text-fg-subtle">/</span>
+                <Kbd>k</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>j</Kbd>
+                <span className="text-xs text-fg-subtle">/</span>
+                <Kbd>k</Kbd>
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Save / submit</span>
+              <span className="flex items-center gap-1">
+                <Kbd>⌘</Kbd>
+                <Kbd>↵</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>Ctrl</Kbd>
+                <Kbd>Enter</Kbd>
+              </span>
+            </div>
+            <div className="grid grid-cols-[1fr_minmax(0,140px)_minmax(0,140px)] items-center gap-3 px-4 py-2.5">
+              <span className="text-sm">Confirm selection</span>
+              <span className="flex items-center gap-1">
+                <Kbd>
+                  <Check className="h-2.5 w-2.5" />
+                </Kbd>
+                <Kbd>↵</Kbd>
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>
+                  <Check className="h-2.5 w-2.5" />
+                </Kbd>
+                <Kbd>Enter</Kbd>
+              </span>
+            </div>
           </div>
         </div>
+        <p className="mt-3 text-xs text-fg-subtle">
+          The running app detects the user&apos;s OS and renders the matching column — Phase 1 will ship a <code className="font-mono text-[11px] text-fg-muted">PlatformKbd</code> helper for this.
+        </p>
       </Section>
     </>
   );

@@ -94,14 +94,15 @@
     @apply bg-bg text-fg font-sans antialiased;
     /* SPEC §4: Inter feature-settings for Linear-esque clarity. */
     font-feature-settings: "cv11", "ss01", "ss03";
+    letter-spacing: -0.003em;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* SPEC §4: Focus — always visible, 2px accent ring. */
+  /* SPEC §4: Focus — always visible, 2px accent ring with halo offset. */
   :focus-visible {
-    @apply outline-none ring-2 ring-accent-ring ring-offset-0;
+    @apply outline-none ring-2 ring-accent-ring ring-offset-2 ring-offset-bg;
   }
 
   /* SPEC §4: tabular figures on numeric cells. */
@@ -118,7 +119,10 @@
 
   /* Linear-style form label — SPEC §4 "Inputs" note. */
   .label-meta {
-    @apply text-xs font-medium uppercase tracking-wide text-fg-muted;
+    @apply font-medium uppercase text-fg-muted;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    line-height: 1.3;
   }
 }
 
