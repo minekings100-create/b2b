@@ -8,12 +8,20 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install chromium",
+    "db:push": "supabase db push --linked",
+    "db:reset": "supabase db reset --linked",
+    "db:types": "supabase gen types typescript --linked --schema public | grep -v -e '^WARN:' -e '^A new version of Supabase CLI' -e '^We recommend updating' > src/lib/supabase/types.ts",
+    "seed": "tsx --env-file=.env.local scripts/seed.ts"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-slot": "^1.1.0",
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.103.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
@@ -23,18 +31,25 @@
     "next-themes": "^0.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.3.0"
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^2.3.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.1",
     "@types/node": "^20.14.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "autoprefixer": "^10.4.19",
+    "dotenv": "^16.6.1",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.33",
     "postcss": "^8.4.38",
+    "supabase": "^1.226.4",
     "tailwindcss": "^3.4.4",
-    "typescript": "^5.4.5"
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.1"
   }
 }
