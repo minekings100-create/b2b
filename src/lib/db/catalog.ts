@@ -196,6 +196,37 @@ export async function fetchCatalogCategories(): Promise<CatalogCategory[]> {
   return data ?? [];
 }
 
+export type CatalogCategoryWithCount = CatalogCategory & { product_count: number };
+
+/**
+ * Categories page needs a "how many products reference each" count so admins
+ * can judge delete impact. One round-trip via PostgREST's `count` aggregate.
+ */
+export async function fetchCategoriesWithCounts(): Promise<
+  CatalogCategoryWithCount[]
+> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("product_categories")
+    .select(
+      `id, name, sort_order,
+       products (count)`,
+    )
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
+
+  return (data ?? []).map((row) => {
+    const products = row.products as unknown as { count: number }[] | null;
+    return {
+      id: row.id,
+      name: row.name,
+      sort_order: row.sort_order,
+      product_count: products?.[0]?.count ?? 0,
+    };
+  });
+}
+
 export type ProductDetail = CatalogProduct & {
   barcodes: { id: string; barcode: string; unit_multiplier: number }[];
 };
