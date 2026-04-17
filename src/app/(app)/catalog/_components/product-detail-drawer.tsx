@@ -2,8 +2,12 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
+import Link from "next/link";
+import { Pencil } from "lucide-react";
 import { Drawer } from "@/components/ui/drawer";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { ProductDetail } from "@/lib/db/catalog";
 import { formatCents } from "@/lib/money";
 import { StockPill } from "./stock-pill";
@@ -13,7 +17,13 @@ import { StockPill } from "./stock-pill";
  * matches this product's id. Close clears the param and replaces history
  * (no new entry — the drawer feels transient).
  */
-export function ProductDetailDrawer({ product }: { product: ProductDetail }) {
+export function ProductDetailDrawer({
+  product,
+  admin,
+}: {
+  product: ProductDetail;
+  admin: boolean;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const open = params.get("pid") === product.id;
@@ -24,6 +34,13 @@ export function ProductDetailDrawer({ product }: { product: ProductDetail }) {
     const qs = next.toString();
     return qs ? `/catalog?${qs}` : "/catalog";
   }, [params]);
+
+  const editHref = useMemo(() => {
+    const next = new URLSearchParams(params.toString());
+    next.delete("pid");
+    next.set("eid", product.id);
+    return `/catalog?${next.toString()}`;
+  }, [params, product.id]);
 
   return (
     <Drawer
@@ -37,8 +54,31 @@ export function ProductDetailDrawer({ product }: { product: ProductDetail }) {
           <span className="truncate">{product.name}</span>
         </span>
       }
+      actions={
+        admin ? (
+          <Link
+            href={editHref}
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Link>
+        ) : null
+      }
     >
       <div className="space-y-6">
+        {product.image_url ? (
+          <div className="overflow-hidden rounded-lg bg-surface-elevated ring-1 ring-inset ring-border">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={product.image_url}
+              alt={product.name}
+              className="aspect-video w-full object-cover"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        ) : null}
         <section>
           <p className="label-meta mb-1">Availability</p>
           <div className="flex flex-wrap items-center gap-2">

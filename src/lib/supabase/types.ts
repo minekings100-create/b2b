@@ -1070,6 +1070,7 @@ export type Database = {
           full_name: string | null
           id: string
           phone: string | null
+          ui_catalog_view: Database["public"]["Enums"]["ui_catalog_view"]
           ui_theme: Database["public"]["Enums"]["ui_theme"]
           updated_at: string | null
         }
@@ -1081,6 +1082,7 @@ export type Database = {
           full_name?: string | null
           id: string
           phone?: string | null
+          ui_catalog_view?: Database["public"]["Enums"]["ui_catalog_view"]
           ui_theme?: Database["public"]["Enums"]["ui_theme"]
           updated_at?: string | null
         }
@@ -1092,6 +1094,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           phone?: string | null
+          ui_catalog_view?: Database["public"]["Enums"]["ui_catalog_view"]
           ui_theme?: Database["public"]["Enums"]["ui_theme"]
           updated_at?: string | null
         }
@@ -1154,6 +1157,7 @@ export type Database = {
         | "received"
         | "processed"
         | "closed"
+      ui_catalog_view: "table" | "grid"
       ui_theme: "system" | "light" | "dark"
       user_role:
         | "branch_user"
@@ -1326,6 +1330,7 @@ export const Constants = {
         "processed",
         "closed",
       ],
+      ui_catalog_view: ["table", "grid"],
       ui_theme: ["system", "light", "dark"],
       user_role: [
         "branch_user",
