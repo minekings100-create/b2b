@@ -133,6 +133,106 @@ export type Database = {
         }
         Relationships: []
       }
+      product_categories: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          sort_order: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          sort_order?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_categories_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "product_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          active: boolean
+          category_id: string | null
+          created_at: string
+          deleted_at: string | null
+          description: string | null
+          id: string
+          image_path: string | null
+          max_order_qty: number | null
+          min_order_qty: number
+          name: string
+          sku: string
+          unit: string
+          unit_price_cents: number
+          updated_at: string | null
+          vat_rate: number
+        }
+        Insert: {
+          active?: boolean
+          category_id?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          image_path?: string | null
+          max_order_qty?: number | null
+          min_order_qty?: number
+          name: string
+          sku: string
+          unit?: string
+          unit_price_cents?: number
+          updated_at?: string | null
+          vat_rate?: number
+        }
+        Update: {
+          active?: boolean
+          category_id?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          image_path?: string | null
+          max_order_qty?: number | null
+          min_order_qty?: number
+          name?: string
+          sku?: string
+          unit?: string
+          unit_price_cents?: number
+          updated_at?: string | null
+          vat_rate?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "product_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_branch_roles: {
         Row: {
           branch_id: string | null
