@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Box, Plus, Upload } from "lucide-react";
+import { Box, Plus, Tags, Upload } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -113,6 +113,13 @@ export default async function CatalogPage({
             <ViewToggle current={viewMode} />
             {admin ? (
               <>
+                <Link
+                  href="/catalog/categories"
+                  className={cn(buttonVariants({ variant: "ghost", size: "default" }))}
+                >
+                  <Tags className="h-3.5 w-3.5" />
+                  Categories
+                </Link>
                 <Link
                   href="/catalog/import"
                   className={cn(buttonVariants({ variant: "secondary", size: "default" }))}

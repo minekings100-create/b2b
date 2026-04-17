@@ -14,9 +14,9 @@ Each entry follows the shape:
 
 _(none yet)_
 
-## Proposed Phase 2.5 — Inbound goods & replenishment
+## Proposed Phase 2.6 — Inbound goods & replenishment
 
-_Captured: 2026-04-17. Status: **proposed, not yet accepted**. Slots between Phase 2.4 (CSV import) and Phase 3 (Ordering & approval) in SPEC §11 once approved. SPEC §11 stays untouched until then._
+_Captured: 2026-04-17. Renumbered 2026-04-18 — the proposal was originally labelled "Phase 2.5" but that slot is now taken by the accepted Category CRUD phase. Status: **proposed, not yet accepted**. Slots after Phase 2.5 (category CRUD) and before Phase 3 (Ordering & approval) in SPEC §11 once approved. SPEC §11 stays untouched until then._
 
 Two connected features covering stock coming **into** HQ — complementing the existing HQ → branch outbound flow.
 
