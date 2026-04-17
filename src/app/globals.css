@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * SPEC §4 — Design Tokens
+ *
+ * All colors expressed as HSL triplets so Tailwind's `<alpha-value>` works
+ * cleanly (e.g. `bg-accent/10`). Accent is surfaced as a single `--accent`
+ * family that can be swapped without touching components.
+ * ------------------------------------------------------------------------- */
+
+@layer base {
+  :root {
+    /* Neutrals — zinc, light */
+    --bg: 0 0% 98.4%;                    /* zinc-50 */
+    --surface: 0 0% 100%;                /* white */
+    --surface-elevated: 0 0% 100%;
+    --border: 240 5.9% 90%;              /* zinc-200 */
+    --border-strong: 240 5% 84.9%;       /* zinc-300 */
+    --fg: 240 10% 3.9%;                  /* zinc-900 */
+    --fg-muted: 240 3.8% 46.1%;          /* zinc-600 */
+    --fg-subtle: 240 5% 64.9%;           /* zinc-400 */
+    --fg-disabled: 240 5% 64.9%;
+
+    /* Accent — indigo (light) */
+    --accent: 239 84% 57%;               /* indigo-600 */
+    --accent-hover: 243 75% 47%;         /* indigo-700 */
+    --accent-fg: 0 0% 100%;
+    --accent-subtle: 226 100% 97%;       /* indigo-50 */
+    --accent-subtle-fg: 239 84% 47%;     /* indigo-700 */
+    --accent-ring: 239 84% 67%;          /* indigo-500 */
+
+    /* Status — light */
+    --success: 158 64% 40%;              /* emerald-600 */
+    --success-subtle: 152 81% 96%;       /* emerald-50 */
+    --success-subtle-fg: 157 75% 27%;    /* emerald-700 */
+
+    --warning: 32 95% 44%;               /* amber-600 */
+    --warning-subtle: 48 100% 96%;       /* amber-50 */
+    --warning-subtle-fg: 26 91% 32%;     /* amber-700 */
+
+    --danger: 0 72% 51%;                 /* red-600 */
+    --danger-subtle: 0 86% 97%;          /* red-50 */
+    --danger-subtle-fg: 0 74% 42%;       /* red-700 */
+  }
+
+  .dark {
+    /* Neutrals — zinc, dark */
+    --bg: 240 10% 3.9%;                  /* zinc-950 */
+    --surface: 240 5.9% 10%;             /* zinc-900 */
+    --surface-elevated: 240 3.7% 15.9%;  /* zinc-800 */
+    --border: 240 3.7% 15.9%;            /* zinc-800 */
+    --border-strong: 240 5.3% 26.1%;     /* zinc-700 */
+    --fg: 0 0% 98%;                      /* zinc-50 */
+    --fg-muted: 240 5% 84.9%;            /* zinc-300 */
+    --fg-subtle: 240 5% 64.9%;           /* zinc-400 */
+    --fg-disabled: 240 3.8% 46.1%;       /* zinc-600 */
+
+    /* Accent — indigo (dark) */
+    --accent: 239 84% 67%;               /* indigo-500 */
+    --accent-hover: 234 89% 74%;         /* indigo-400 */
+    --accent-fg: 0 0% 100%;
+    --accent-subtle: 244 47% 20%;        /* indigo-950-ish */
+    --accent-subtle-fg: 234 89% 74%;     /* indigo-400 */
+    --accent-ring: 239 84% 67%;          /* indigo-500 */
+
+    /* Status — dark */
+    --success: 158 64% 52%;              /* emerald-500 */
+    --success-subtle: 164 86% 16%;       /* emerald-950 */
+    --success-subtle-fg: 152 76% 60%;    /* emerald-400 */
+
+    --warning: 38 92% 50%;               /* amber-500 */
+    --warning-subtle: 21 92% 14%;        /* amber-950 */
+    --warning-subtle-fg: 43 96% 56%;     /* amber-400 */
+
+    --danger: 0 84% 60%;                 /* red-500 */
+    --danger-subtle: 0 75% 15%;          /* red-950 */
+    --danger-subtle-fg: 0 91% 71%;       /* red-400 */
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    /* SPEC §4: Inter feature-settings for Linear-esque clarity. */
+    font-feature-settings: "cv11", "ss01", "ss03";
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* SPEC §4: Focus — always visible, 2px accent ring. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent-ring ring-offset-0;
+  }
+
+  /* SPEC §4: tabular figures on numeric cells. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Fine-tune: numbers in mono for SKU/invoice/pallet — SPEC §4 */
+  .font-numeric {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  /* Linear-style form label — SPEC §4 "Inputs" note. */
+  .label-meta {
+    @apply text-xs font-medium uppercase tracking-wide text-fg-muted;
+  }
+}
+
+@layer components {
+  /* SPEC §4: Skeletons, not spinners, for loading states. */
+  .skeleton {
+    @apply relative overflow-hidden bg-surface-elevated;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--border) / 0.6) 50%,
+      transparent 100%
+    );
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes skeleton-shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+}
+
+/* Respect user preference — SPEC §3 accessibility baseline. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
