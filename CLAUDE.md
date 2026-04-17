@@ -8,6 +8,7 @@
 
 1. **Read `SPEC.md` at the start of every new session.** Do not rely on memory from previous sessions.
 2. **Never skip phases.** The SPEC defines build phases in §11. Do not start a phase until the previous phase's acceptance criteria (§12) are met.
+   - **Exception (accepted 2026-04-17):** Phase 1.5 lands every remaining §6 table as schema-only scaffolding (migrations + RLS only — no Server Actions, no UI, no business logic) so a rich demo-data seed can be populated for visual review. Phases 2–6 still ship features per the original §11 order; they simply start against tables that already exist rather than creating their own.
 3. **Every new database table gets Row Level Security policies in the same migration that creates it.** No exceptions.
 4. **Every mutation writes to `audit_log`.** No exceptions.
 5. **Use Server Actions for mutations.** Components are Server Components by default; opt into `"use client"` only when interactivity demands it.
