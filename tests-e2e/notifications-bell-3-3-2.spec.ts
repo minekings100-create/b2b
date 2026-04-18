@@ -102,23 +102,18 @@ test.describe("3.3.2 notifications bell — basic surface", () => {
     page,
   }) => {
     const uid = await userId("ams.user1@example.nl");
+    // Bell-mechanics tests omit `order_id` in the payload — the
+    // 3.3.2 follow-up filter drops orphan order-linked notifications,
+    // and we don't want fake UUIDs here. The navigation-specific
+    // test below uses a real demo order.
     await seedNotificationsFor(uid, [
       {
         type: "order_branch_rejected",
-        payload: {
-          order_id: "00000000-0000-0000-0000-000000000001",
-          order_number: "ORD-BELL-1",
-          reason: "Over budget",
-          href: "/orders/00000000-0000-0000-0000-000000000001",
-        },
+        payload: { order_number: "ORD-BELL-1", reason: "Over budget", href: "/" },
       },
       {
         type: "order_cancelled",
-        payload: {
-          order_id: "00000000-0000-0000-0000-000000000002",
-          order_number: "ORD-BELL-2",
-          href: "/orders/00000000-0000-0000-0000-000000000002",
-        },
+        payload: { order_number: "ORD-BELL-2", href: "/" },
       },
     ]);
 
@@ -139,10 +134,9 @@ test.describe("3.3.2 notifications bell — basic surface", () => {
       {
         type: "order_branch_rejected",
         payload: {
-          order_id: "abc",
           order_number: "ORD-BELL-77",
           reason: "Over budget — please resubmit next month",
-          href: "/orders/abc",
+          href: "/",
         },
       },
     ]);
@@ -178,19 +172,11 @@ test.describe("3.3.2 mark-as-read flows", () => {
     await seedNotificationsFor(uid, [
       {
         type: "order_cancelled",
-        payload: {
-          order_id: "id1",
-          order_number: "ORD-BELL-A",
-          href: "/orders/id1",
-        },
+        payload: { order_number: "ORD-BELL-A", href: "/" },
       },
       {
         type: "order_cancelled",
-        payload: {
-          order_id: "id2",
-          order_number: "ORD-BELL-B",
-          href: "/orders/id2",
-        },
+        payload: { order_number: "ORD-BELL-B", href: "/" },
       },
     ]);
 
@@ -280,21 +266,13 @@ test.describe("3.3.2 RLS + role scope", () => {
     await seedNotificationsFor(someoneElse, [
       {
         type: "order_cancelled",
-        payload: {
-          order_id: "x",
-          order_number: "ORD-BELL-OTHER",
-          href: "/orders/x",
-        },
+        payload: { order_number: "ORD-BELL-OTHER", href: "/" },
       },
     ]);
     await seedNotificationsFor(me, [
       {
         type: "order_cancelled",
-        payload: {
-          order_id: "y",
-          order_number: "ORD-BELL-MINE",
-          href: "/orders/y",
-        },
+        payload: { order_number: "ORD-BELL-MINE", href: "/" },
       },
     ]);
 
@@ -315,11 +293,7 @@ test.describe("3.3.2 polling", () => {
     await seedNotificationsFor(uid, [
       {
         type: "order_cancelled",
-        payload: {
-          order_id: "z",
-          order_number: "ORD-BELL-INITIAL",
-          href: "/orders/z",
-        },
+        payload: { order_number: "ORD-BELL-INITIAL", href: "/" },
       },
     ]);
 
@@ -331,11 +305,7 @@ test.describe("3.3.2 polling", () => {
     await seedNotificationsFor(uid, [
       {
         type: "order_branch_approved",
-        payload: {
-          order_id: "z2",
-          order_number: "ORD-BELL-LIVE",
-          href: "/orders/z2",
-        },
+        payload: { order_number: "ORD-BELL-LIVE", href: "/" },
       },
     ]);
 
