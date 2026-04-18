@@ -1,5 +1,24 @@
 # Changelog
 
+## [Phase 3.3.2] — 2026-04-19
+
+### Added
+- **In-app notification bell** in a new top bar slot (`AppShell` gains a 48px header above the page content; sidebar is unchanged).
+- **Bell** (`src/components/app/notifications-bell{.tsx,.client.tsx}`) — server-component wrapper seeds the initial snapshot to avoid an empty-state flash; client component renders the badge + dropdown and polls every 30 s. Polling is visibility-aware: paused when the tab is hidden, forced-refresh on focus.
+- **Dropdown** — last 10 notifications, headline + relative time. Unread rows carry an accent-tinted background + a small accent dot. "Mark all read" link in the header. Clicking an item calls the read action optimistically and navigates to its `payload.href`. No new dep — click-outside + Escape via lightweight effect.
+- **API route `/api/notifications/me`** — single-shot snapshot (`{ unread_count, recent[] }`) used by the bell's poller. Same shape the server wrapper uses, RLS-scoped to `auth.uid()`.
+- **Server actions** `markNotificationsRead` (single id or all-unread, form-data interface) + `markAllNotificationsReadFormAction` wrapper. Update is RLS-gated; no audit_log row written per mark (high-volume read-state mutation; the underlying entity changes are already audited).
+- **Shared dates util** (`src/lib/dates/format.ts`) extracts `formatAbsolute` + `relativeTime` from `<ActivityTimeline>` so the bell reuses the same nl-NL / Europe/Amsterdam formatting.
+- **Notification headline copy** (`src/lib/notifications/headline.ts`) — pure module mapping every 3.3.1 trigger type to a short bell-friendly one-liner. Pinned by 8 vitest cases.
+- Playwright spec `tests-e2e/notifications-bell-3-3-2.spec.ts` (7 cases): bell + badge surface, dropdown content, mark-all clears badge + persists to DB, click-through navigation + read flag, RLS scope (other users' notifications never appear), 30 s poller picks up a new row on visibility-change.
+
+### Changed
+- `<AppShell>` now renders a 48 px top bar above the main content. Pages keep their own `<PageHeader>` for breadcrumbs + per-page actions; the top bar holds global controls (the bell today; ⌘K / workspace switcher land here later).
+- `<ActivityTimeline>` swapped its private `formatAbsolute` / `relativeTime` for the shared `dates/format` exports — same behaviour, single source of truth.
+
+### Database
+- No migrations. The `notifications` table + RLS landed in Phase 1.5 (`20260417000011`); 3.3.2 is a pure UI consumer.
+
 ## [Phase 3.3.1] — 2026-04-18  *(rebased onto 3.2.2c)*
 
 Originally built before 3.2.2; rebased on top of the two-step approval
