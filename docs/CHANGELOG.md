@@ -16,6 +16,7 @@
 
 ### Database
 - `20260418000001_audit_log_order_branch_select.sql` — adds an OR-policy on `audit_log` granting `SELECT` to anyone who can already `SELECT` the underlying order via the existing `orders_select` chain. Branch users can now see manager / packer / shipper actions on their own orders. Admins, packers, and other-branch users are unaffected by their existing scopes.
+- `20260418000003_users_shared_branch_helper.sql` — fixes a follow-up gap exposed by the e2e suite: the audit row was reachable but the actor-email lookup hit `users` RLS, which had no clause for branch users. Adds a `SECURITY DEFINER` `user_shares_branch_with_caller(uuid)` helper (mirrors `current_user_has_branch`) and a new `users_select_shared_branch` policy that grants SELECT on a user row to any caller who shares a `user_branch_roles` assignment with that user. Cross-branch isolation is preserved (verified by the existing `tests/rls/users.test.ts` "cannot read another branch's user" assertion). Note: `20260418000002_users_select_shared_branch.sql` was the first attempt and is left in place but superseded — the policy it created is dropped + recreated by `…000003`.
 
 ## [Phase 1] — 2026-04-17
 
