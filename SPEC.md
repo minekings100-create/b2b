@@ -84,6 +84,24 @@ Build an **internal B2B procurement platform** for a multi-branch Dutch company.
 - Error `red-600` / `red-500`
 - Info uses accent
 
+**Status-pill extension (3.2.2a)** — the 11-state order lifecycle needs hue distinction that the 4 semantic tokens above can't supply on their own. The additional hues below are **reserved for entity-lifecycle pills** (orders today, invoices / pallets / returns later) — they must not be used as decorative accents anywhere else. Each pill keeps the "dot + label + tinted bg + colored text + subtle ring" pattern.
+
+  | Status            | Light / Dark hue      | Rationale                         |
+  |-------------------|-----------------------|-----------------------------------|
+  | `draft`           | `zinc`                | neutral — not started             |
+  | `submitted`       | `blue`                | awaiting first human decision     |
+  | `branch_approved` | `amber` (light tint)  | mid-process, one step to go       |
+  | `approved`        | `emerald`             | green-lit                         |
+  | `picking`         | `orange`              | active warehouse work             |
+  | `packed`          | `purple`              | stage marker between pick + ship  |
+  | `shipped`         | `cyan`                | in transit                        |
+  | `delivered`       | `green`               | arrived — distinct from emerald   |
+  | `closed`          | `zinc` (muted)        | archived                          |
+  | `rejected`        | `red`                 | hard stop                         |
+  | `cancelled`       | `red` (muted)         | soft stop                         |
+
+  The mapping lives in `src/components/app/order-status-pill.tsx`; no new CSS variables are added — the pills render directly with Tailwind hue classes (`bg-blue-50`, `text-orange-700`, etc.) so JIT purging keeps bundle size flat.
+
 **Spacing**
 - Base unit 4px; use Tailwind scale
 - Page gutter 24px, section gap 24–32px, card padding 16px
