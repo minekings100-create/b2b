@@ -30,8 +30,9 @@ export function CatalogGrid({
               href={rowHref(p.id)}
               aria-current={selectedId === p.id ? "page" : undefined}
               className={cn(
-                "group/tile block rounded-lg bg-surface ring-1 ring-border transition-colors duration-150",
-                "hover:ring-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
+                "group/tile block cursor-pointer rounded-lg bg-surface ring-1 ring-border transition-colors duration-150",
+                "hover:bg-zinc-50 hover:ring-border-strong dark:hover:bg-zinc-900/50",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
                 selectedId === p.id && "ring-2 ring-accent",
               )}
             >

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
+import { z } from "zod";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -11,30 +12,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { OrderStatusPill } from "@/components/app/order-status-pill";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { fetchVisibleOrders } from "@/lib/db/orders-list";
+import {
+  fetchVisibleOrders,
+  type OrderStatusFilter,
+} from "@/lib/db/orders-list";
 import { formatCents } from "@/lib/money";
+import { StatusFilterChips } from "./_components/status-filter-chips";
 
 export const metadata = { title: "Orders" };
-
-const statusVariant: Record<
-  string,
-  "neutral" | "accent" | "success" | "warning" | "danger"
-> = {
-  draft: "neutral",
-  submitted: "accent",
-  approved: "success",
-  rejected: "danger",
-  picking: "warning",
-  packed: "warning",
-  shipped: "accent",
-  delivered: "success",
-  closed: "neutral",
-  cancelled: "danger",
-};
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -45,11 +34,38 @@ function formatDate(iso: string | null) {
   });
 }
 
-export default async function OrdersPage() {
+const StatusParam = z
+  .enum([
+    "draft",
+    "submitted",
+    "approved",
+    "rejected",
+    "picking",
+    "packed",
+    "shipped",
+    "delivered",
+    "closed",
+    "cancelled",
+  ])
+  .optional();
+
+export default async function OrdersPage({
+  searchParams,
+}: {
+  searchParams: { status?: string };
+}) {
   const session = await getUserWithRoles();
   if (!session) redirect("/login");
 
-  const orders = await fetchVisibleOrders();
+  // SPEC working-rule §6 — parse URL params with Zod at the trust boundary.
+  const parsedStatus = StatusParam.safeParse(searchParams.status);
+  const activeStatus: OrderStatusFilter | undefined = parsedStatus.success
+    ? parsedStatus.data
+    : undefined;
+
+  const orders = await fetchVisibleOrders(
+    activeStatus ? { statuses: [activeStatus] } : undefined,
+  );
 
   return (
     <>
@@ -66,12 +82,17 @@ export default async function OrdersPage() {
           </Link>
         }
       />
+      <StatusFilterChips active={activeStatus ?? "all"} />
       {orders.length === 0 ? (
         <div className="px-gutter py-10">
           <EmptyState
             icon={<ShoppingCart className="h-5 w-5" />}
-            title="No orders yet"
-            description="Submitted and fulfilled orders you can see appear here."
+            title={activeStatus ? `No ${activeStatus} orders` : "No orders yet"}
+            description={
+              activeStatus
+                ? "Try a different status filter."
+                : "Submitted and fulfilled orders you can see appear here."
+            }
           />
         </div>
       ) : (
@@ -83,6 +104,7 @@ export default async function OrdersPage() {
                   <TableHead className="w-[160px]">Number</TableHead>
                   <TableHead className="w-[90px]">Branch</TableHead>
                   <TableHead>Created by</TableHead>
+                  <TableHead>Approved by</TableHead>
                   <TableHead className="w-[130px]">Status</TableHead>
                   <TableHead className="w-[120px]">Submitted</TableHead>
                   <TableHead className="w-[70px] text-right">Lines</TableHead>
@@ -91,9 +113,14 @@ export default async function OrdersPage() {
               </TableHeader>
               <TableBody>
                 {orders.map((o) => (
-                  <TableRow key={o.id}>
-                    <TableCell className="font-numeric text-fg-muted">
-                      {o.order_number}
+                  <TableRow key={o.id} className="cursor-pointer">
+                    <TableCell className="font-numeric">
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="text-fg hover:underline"
+                      >
+                        {o.order_number}
+                      </Link>
                     </TableCell>
                     <TableCell className="font-numeric">
                       {o.branch_code}
@@ -101,10 +128,11 @@ export default async function OrdersPage() {
                     <TableCell className="text-fg-muted truncate">
                       {o.created_by_email ?? "—"}
                     </TableCell>
+                    <TableCell className="text-fg-muted truncate">
+                      {o.approved_by_email ?? "—"}
+                    </TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant[o.status] ?? "neutral"}>
-                        {o.status.replace(/_/g, " ")}
-                      </Badge>
+                      <OrderStatusPill status={o.status} />
                     </TableCell>
                     <TableCell className="text-fg-muted">
                       {formatDate(o.submitted_at ?? o.created_at)}
