@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isHqManager } from "@/lib/auth/roles";
 import {
   ApproveOrderInput,
   CancelOrderInput,
@@ -14,13 +14,20 @@ import {
 import type { Json } from "@/lib/supabase/types";
 
 /**
- * Inventory movements + `inventory.quantity_reserved` writes deliberately
- * use the service-role client. RLS on those tables only admits super_admin
- * / administration / packer — branch_manager is not listed, but SPEC §8.2
- * requires managers to approve orders (and approval creates reservation
- * movements). The application layer above the inventory writes enforces
- * that the caller is isAdmin() or the branch_manager of the order's
- * branch — strictly tighter than the RLS check — so the bypass is safe.
+ * Two-step approval (3.2.2b, SPEC §8.2):
+ *
+ *   submitted ──[branchApproveOrder]──> branch_approved ──[hqApproveOrder]──> approved
+ *               │                                          │
+ *               └──[rejectOrder, BM, w/reason]──> rejected ┴──[rejectOrder, HQ, w/reason]──> rejected
+ *
+ * Inventory reservations land at step 1 (branch approval) — HQ rejection or
+ * cancellation from `branch_approved` must release them. The release path is
+ * shared with cancelOrder via `releaseReservedFor()`.
+ *
+ * Inventory writes use the service-role client (RLS only admits
+ * super_admin / administration / packer on `inventory*` tables — branch
+ * managers and HQ aren't listed there). The application gate above each
+ * write is strictly tighter than the missing RLS, so the bypass is safe.
  */
 
 export type ApprovalActionState =
@@ -33,6 +40,7 @@ type Order = {
   branch_id: string;
   status: string;
   created_by_user_id: string;
+  branch_approved_by_user_id: string | null;
   approved_by_user_id: string | null;
 };
 
@@ -42,23 +50,30 @@ async function loadOrder(
 ): Promise<Order | null> {
   const { data } = await supabase
     .from("orders")
-    .select("id, branch_id, status, created_by_user_id, approved_by_user_id")
+    .select(
+      "id, branch_id, status, created_by_user_id, branch_approved_by_user_id, approved_by_user_id",
+    )
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
   return (data as Order | null) ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Step 1 — Branch Manager approval (submitted → branch_approved)
+// ---------------------------------------------------------------------------
+
 /**
- * Manager approves an order. Per SPEC §8.2:
+ * Branch Manager approves at step 1. Per SPEC §8.2:
  *  - Each line's `quantity_approved` may be adjusted downward from
  *    `quantity_requested`; 0 effectively skips that line.
  *  - Approved quantities create `inventory_movements` rows with
  *    `reason='order_reserved'` and bump `inventory.quantity_reserved`.
  *  - If any approved qty exceeds on-hand − reserved the order goes through
  *    anyway (backorder) and we flag it on the audit entry.
+ *  - On success: status flips to `branch_approved`; HQ then takes over.
  */
-export async function approveOrder(
+export async function branchApproveOrder(
   _prev: ApprovalActionState,
   formData: FormData,
 ): Promise<ApprovalActionState> {
@@ -66,7 +81,6 @@ export async function approveOrder(
   if (!session) redirect("/login");
 
   const order_id = String(formData.get("order_id") ?? "");
-  // Collect approved[itemId]=N pairs.
   const approved: Record<string, number> = {};
   for (const [key, value] of formData.entries()) {
     const match = key.match(/^approved\[([0-9a-f-]{36})\]$/i);
@@ -86,13 +100,13 @@ export async function approveOrder(
   if (!order) return { error: "Order not found" };
   if (order.status !== "submitted") {
     return {
-      error: `Can only approve orders in 'submitted' state (was ${order.status})`,
+      error: `Can only branch-approve orders in 'submitted' state (was ${order.status})`,
     };
   }
 
-  // Role + branch check. Managers can approve their own branch; super_admin
-  // and administration can approve any. The `orders_update` RLS policy also
-  // enforces this.
+  // Branch managers approve their own branch; super_admin / administration
+  // can approve any. HQ Manager is NOT permitted at step 1 — that's the
+  // explicit non-substitution rule from SPEC §8.2.
   const canApprove =
     isAdmin(session.roles) ||
     session.roles.some(
@@ -100,7 +114,6 @@ export async function approveOrder(
     );
   if (!canApprove) return { error: "Forbidden" };
 
-  // Load line items so we can cap approved ≤ requested and fetch product ids.
   const { data: items } = await supabase
     .from("order_items")
     .select("id, product_id, quantity_requested")
@@ -109,7 +122,6 @@ export async function approveOrder(
     return { error: "Order has no items" };
   }
 
-  // Build update payloads + reservation plan.
   type ItemUpdate = {
     id: string;
     product_id: string;
@@ -131,7 +143,7 @@ export async function approveOrder(
     });
   }
 
-  // Check for backorder — any approved qty > (on_hand − reserved).
+  // Backorder flag — any approved qty exceeds available?
   const productIds = Array.from(new Set(updates.map((u) => u.product_id)));
   const { data: invRows } = await supabase
     .from("inventory")
@@ -151,7 +163,6 @@ export async function approveOrder(
     if (u.quantity_approved > avail) backorder = true;
   }
 
-  // Apply line-level approvals.
   for (const u of updates) {
     const { error: updErr } = await supabase
       .from("order_items")
@@ -160,9 +171,7 @@ export async function approveOrder(
     if (updErr) return { error: updErr.message };
   }
 
-  // Reservations per positive approved line. Bypass RLS via the
-  // service-role client (see top-of-file comment) — application gate
-  // above already enforces manager-of-branch or admin.
+  // Reservation movements per positive approved line.
   const movementRows = updates
     .filter((u) => u.quantity_approved > 0)
     .map((u) => ({
@@ -198,15 +207,13 @@ export async function approveOrder(
     }
   }
 
-  // Flip the header. `.select()` forces the update to return affected rows
-  // so we can detect silent 0-row updates (RLS rejected / status raced).
   const nowIso = new Date().toISOString();
   const { data: headRows, error: headErr } = await supabase
     .from("orders")
     .update({
-      status: "approved",
-      approved_at: nowIso,
-      approved_by_user_id: session.user.id,
+      status: "branch_approved",
+      branch_approved_at: nowIso,
+      branch_approved_by_user_id: session.user.id,
     })
     .eq("id", order.id)
     .eq("status", "submitted")
@@ -222,11 +229,11 @@ export async function approveOrder(
   await supabase.from("audit_log").insert({
     entity_type: "order",
     entity_id: order.id,
-    action: "approve",
+    action: "branch_approve",
     actor_user_id: session.user.id,
     before_json: { status: "submitted" } as Json,
     after_json: {
-      status: "approved",
+      status: "branch_approved",
       backorder,
       approved_lines: updates.map((u) => ({
         item_id: u.id,
@@ -243,16 +250,108 @@ export async function approveOrder(
   return { success: true };
 }
 
-export async function approveOrderFormAction(formData: FormData): Promise<void> {
-  const result = await approveOrder(undefined, formData);
+export async function branchApproveOrderFormAction(
+  formData: FormData,
+): Promise<void> {
+  const result = await branchApproveOrder(undefined, formData);
+  const orderId = String(formData.get("order_id") ?? "");
   if (result && "error" in result) {
     const qs = new URLSearchParams({ error: result.error });
-    const orderId = String(formData.get("order_id") ?? "");
     redirect(`/orders/${orderId}?${qs.toString()}`);
   }
-  redirect(`/orders/${String(formData.get("order_id") ?? "")}`);
+  redirect(`/orders/${orderId}`);
 }
 
+// ---------------------------------------------------------------------------
+// Step 2 — HQ Manager approval (branch_approved → approved)
+// ---------------------------------------------------------------------------
+
+/**
+ * HQ Manager approves at step 2. Per SPEC §8.2:
+ *  - HQ does NOT adjust quantities (that's the Branch Manager's call).
+ *  - No new reservations — those landed at step 1.
+ *  - On success: status flips to `approved`; the order is now visible to
+ *    the packer queue.
+ */
+export async function hqApproveOrder(
+  _prev: ApprovalActionState,
+  formData: FormData,
+): Promise<ApprovalActionState> {
+  const session = await getUserWithRoles();
+  if (!session) redirect("/login");
+
+  const order_id = String(formData.get("order_id") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(order_id)) {
+    return { error: "Invalid order id" };
+  }
+
+  const supabase = createClient();
+  const order = await loadOrder(supabase, order_id);
+  if (!order) return { error: "Order not found" };
+  if (order.status !== "branch_approved") {
+    return {
+      error: `Can only HQ-approve orders in 'branch_approved' state (was ${order.status})`,
+    };
+  }
+
+  const canApprove = isAdmin(session.roles) || isHqManager(session.roles);
+  if (!canApprove) return { error: "Forbidden" };
+
+  const nowIso = new Date().toISOString();
+  const { data: headRows, error: headErr } = await supabase
+    .from("orders")
+    .update({
+      status: "approved",
+      approved_at: nowIso,
+      approved_by_user_id: session.user.id,
+    })
+    .eq("id", order.id)
+    .eq("status", "branch_approved")
+    .select("id");
+  if (headErr) return { error: headErr.message };
+  if (!headRows || headRows.length === 0) {
+    return {
+      error:
+        "Order header update affected 0 rows — RLS rejected the write or the status was changed concurrently.",
+    };
+  }
+
+  await supabase.from("audit_log").insert({
+    entity_type: "order",
+    entity_id: order.id,
+    action: "hq_approve",
+    actor_user_id: session.user.id,
+    before_json: { status: "branch_approved" } as Json,
+    after_json: { status: "approved" } as unknown as Json,
+  });
+
+  revalidatePath("/approvals");
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${order.id}`);
+  return { success: true };
+}
+
+export async function hqApproveOrderFormAction(formData: FormData): Promise<void> {
+  const result = await hqApproveOrder(undefined, formData);
+  const orderId = String(formData.get("order_id") ?? "");
+  if (result && "error" in result) {
+    const qs = new URLSearchParams({ error: result.error });
+    redirect(`/orders/${orderId}?${qs.toString()}`);
+  }
+  redirect(`/orders/${orderId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Reject — accepts both source states
+// ---------------------------------------------------------------------------
+
+/**
+ * Reject an order at either step.
+ *  - From `submitted`: BM-of-branch or admin can reject. No reservations
+ *    to release (none made yet at step 1).
+ *  - From `branch_approved`: HQ Manager or admin can reject. Reservations
+ *    made at step 1 must be released.
+ */
 export async function rejectOrder(
   _prev: ApprovalActionState,
   formData: FormData,
@@ -274,15 +373,26 @@ export async function rejectOrder(
   const supabase = createClient();
   const order = await loadOrder(supabase, parsed.data.order_id);
   if (!order) return { error: "Order not found" };
-  if (order.status !== "submitted") {
-    return { error: `Can only reject submitted orders (was ${order.status})` };
+  if (order.status !== "submitted" && order.status !== "branch_approved") {
+    return {
+      error: `Can only reject orders in 'submitted' or 'branch_approved' state (was ${order.status})`,
+    };
   }
-  const canReject =
-    isAdmin(session.roles) ||
-    session.roles.some(
-      (r) => r.role === "branch_manager" && r.branch_id === order.branch_id,
-    );
+
+  const fromBranch = order.status === "submitted";
+  const canReject = fromBranch
+    ? isAdmin(session.roles) ||
+      session.roles.some(
+        (r) => r.role === "branch_manager" && r.branch_id === order.branch_id,
+      )
+    : // From branch_approved → only HQ + admin (BM's window is closed).
+      isAdmin(session.roles) || isHqManager(session.roles);
   if (!canReject) return { error: "Forbidden" };
+
+  // If rejecting at step 2, release the reservations we made at step 1.
+  if (!fromBranch) {
+    await releaseReservationsFor(supabase, order.id, session.user.id);
+  }
 
   const nowIso = new Date().toISOString();
   const { error } = await supabase
@@ -290,22 +400,27 @@ export async function rejectOrder(
     .update({
       status: "rejected",
       rejection_reason: parsed.data.reason,
+      // Stamp the *step-2 actor* into approved_by_user_id when the rejection
+      // happens at step 2; for step-1 rejection this stays null. The
+      // approved_at column doubles as a "decided_at" marker so the
+      // existing /orders Approved-by column shows who rejected.
       approved_at: nowIso,
       approved_by_user_id: session.user.id,
     })
     .eq("id", order.id)
-    .eq("status", "submitted");
+    .in("status", ["submitted", "branch_approved"]);
   if (error) return { error: error.message };
 
   await supabase.from("audit_log").insert({
     entity_type: "order",
     entity_id: order.id,
-    action: "reject",
+    action: fromBranch ? "branch_reject" : "hq_reject",
     actor_user_id: session.user.id,
-    before_json: { status: "submitted" } as Json,
+    before_json: { status: order.status } as Json,
     after_json: {
       status: "rejected",
       reason: parsed.data.reason,
+      step: fromBranch ? "branch" : "hq",
     } as unknown as Json,
   });
 
@@ -325,10 +440,20 @@ export async function rejectOrderFormAction(formData: FormData): Promise<void> {
   redirect(`/orders/${orderId}`);
 }
 
+// ---------------------------------------------------------------------------
+// Cancel — pre-shipped
+// ---------------------------------------------------------------------------
+
 /**
- * Cancel an order from any pre-shipped state. For approved orders we reverse
- * the reservation via `order_released` movements and decrement
- * `inventory.quantity_reserved`.
+ * Cancel an order from any pre-shipped state. For any state with reserved
+ * inventory (branch_approved, approved, picking) we reverse the reservation
+ * via `order_released` movements and decrement `inventory.quantity_reserved`.
+ *
+ * Permission matrix:
+ *   - draft: creator + branch_manager + admin
+ *   - submitted | branch_approved | approved | picking:
+ *       branch_manager_of_branch, hq_operations_manager, administration,
+ *       super_admin
  */
 export async function cancelOrder(
   _prev: ApprovalActionState,
@@ -350,66 +475,30 @@ export async function cancelOrder(
   const cancellable = [
     "draft",
     "submitted",
+    "branch_approved",
     "approved",
     "picking",
   ] as const;
-  if (
-    !(cancellable as readonly string[]).includes(order.status)
-  ) {
+  if (!(cancellable as readonly string[]).includes(order.status)) {
     return { error: `Cannot cancel order in status '${order.status}'` };
   }
 
   const canCancel =
     isAdmin(session.roles) ||
+    isHqManager(session.roles) ||
     session.roles.some(
       (r) => r.role === "branch_manager" && r.branch_id === order.branch_id,
     ) ||
-    // Allow branch users to cancel their own drafts.
     (order.status === "draft" && order.created_by_user_id === session.user.id);
   if (!canCancel) return { error: "Forbidden" };
 
-  // If approved, release reservations. Same RLS story as approve — use
-  // the service-role client for the inventory side.
-  if (order.status === "approved" || order.status === "picking") {
-    const { data: items } = await supabase
-      .from("order_items")
-      .select("product_id, quantity_approved")
-      .eq("order_id", order.id);
-    const rows = (items ?? []).filter(
-      (it): it is { product_id: string; quantity_approved: number } =>
-        typeof it.quantity_approved === "number" && it.quantity_approved > 0,
-    );
-    if (rows.length > 0) {
-      const adm = createAdminClient();
-      const movements = rows.map((r) => ({
-        product_id: r.product_id,
-        delta: r.quantity_approved,
-        reason: "order_released" as const,
-        reference_type: "order",
-        reference_id: order.id,
-        actor_user_id: session.user.id,
-      }));
-      await adm.from("inventory_movements").insert(movements);
-      const { data: invRows } = await adm
-        .from("inventory")
-        .select("product_id, quantity_reserved")
-        .in(
-          "product_id",
-          Array.from(new Set(rows.map((r) => r.product_id))),
-        );
-      const current = new Map(
-        (invRows ?? []).map((r) => [r.product_id, r.quantity_reserved]),
-      );
-      for (const r of rows) {
-        const prior = current.get(r.product_id) ?? 0;
-        const next = Math.max(0, prior - r.quantity_approved);
-        await adm
-          .from("inventory")
-          .update({ quantity_reserved: next })
-          .eq("product_id", r.product_id);
-        current.set(r.product_id, next);
-      }
-    }
+  // Release reservations if any were made (step 1 onwards).
+  if (
+    order.status === "branch_approved" ||
+    order.status === "approved" ||
+    order.status === "picking"
+  ) {
+    await releaseReservationsFor(supabase, order.id, session.user.id);
   }
 
   const { error } = await supabase
@@ -450,3 +539,50 @@ export async function cancelOrderFormAction(formData: FormData): Promise<void> {
   redirect(`/orders/${orderId}`);
 }
 
+// ---------------------------------------------------------------------------
+// Internal — release-reservations helper shared by cancel + HQ-reject
+// ---------------------------------------------------------------------------
+
+async function releaseReservationsFor(
+  supabase: ReturnType<typeof createClient>,
+  orderId: string,
+  actorUserId: string,
+): Promise<void> {
+  const { data: items } = await supabase
+    .from("order_items")
+    .select("product_id, quantity_approved")
+    .eq("order_id", orderId);
+  const rows = (items ?? []).filter(
+    (it): it is { product_id: string; quantity_approved: number } =>
+      typeof it.quantity_approved === "number" && it.quantity_approved > 0,
+  );
+  if (rows.length === 0) return;
+
+  const adm = createAdminClient();
+  const movements = rows.map((r) => ({
+    product_id: r.product_id,
+    delta: r.quantity_approved,
+    reason: "order_released" as const,
+    reference_type: "order",
+    reference_id: orderId,
+    actor_user_id: actorUserId,
+  }));
+  await adm.from("inventory_movements").insert(movements);
+
+  const { data: invRows } = await adm
+    .from("inventory")
+    .select("product_id, quantity_reserved")
+    .in("product_id", Array.from(new Set(rows.map((r) => r.product_id))));
+  const current = new Map(
+    (invRows ?? []).map((r) => [r.product_id, r.quantity_reserved]),
+  );
+  for (const r of rows) {
+    const prior = current.get(r.product_id) ?? 0;
+    const next = Math.max(0, prior - r.quantity_approved);
+    await adm
+      .from("inventory")
+      .update({ quantity_reserved: next })
+      .eq("product_id", r.product_id);
+    current.set(r.product_id, next);
+  }
+}

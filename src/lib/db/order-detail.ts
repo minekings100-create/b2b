@@ -16,6 +16,9 @@ export type OrderDetail = {
   status: Status;
   created_at: string;
   submitted_at: string | null;
+  branch_approved_at: string | null;
+  branch_approved_by_user_id: string | null;
+  branch_approved_by_email: string | null;
   approved_at: string | null;
   approved_by_user_id: string | null;
   approved_by_email: string | null;
@@ -63,6 +66,8 @@ type RawOrder = {
   status: Status;
   created_at: string;
   submitted_at: string | null;
+  branch_approved_at: string | null;
+  branch_approved_by_user_id: string | null;
   approved_at: string | null;
   approved_by_user_id: string | null;
   rejection_reason: string | null;
@@ -106,7 +111,9 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     .from("orders")
     .select(
       `id, order_number, branch_id, created_by_user_id, status,
-       created_at, submitted_at, approved_at, approved_by_user_id,
+       created_at, submitted_at,
+       branch_approved_at, branch_approved_by_user_id,
+       approved_at, approved_by_user_id,
        rejection_reason, notes,
        total_net_cents, total_vat_cents, total_gross_cents,
        branches ( branch_code, name ),
@@ -203,22 +210,23 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     after_json: a.after_json,
   }));
 
-  // Approver email — pulled from the same map (the approver is also the
-  // actor on the approve audit row). Falls back to a separate lookup if
-  // RLS hid the approve row from this caller (shouldn't happen after the
-  // 20260418000001 policy, but stays defensive).
-  let approverEmail: string | null = null;
-  if (row.approved_by_user_id) {
-    approverEmail = actorEmails.get(row.approved_by_user_id) ?? null;
-    if (!approverEmail) {
-      const { data: approver } = await supabase
-        .from("users")
-        .select("email")
-        .eq("id", row.approved_by_user_id)
-        .maybeSingle();
-      approverEmail = approver?.email ?? null;
-    }
+  // Resolve actor emails for the two approval steps. The same map filled
+  // by the timeline lookup almost always has them; the .maybeSingle()
+  // fallback covers an edge case where RLS hides the audit row but
+  // users-table access is still permitted (e.g. shared-branch helper).
+  async function emailFor(userId: string | null): Promise<string | null> {
+    if (!userId) return null;
+    const cached = actorEmails.get(userId);
+    if (cached) return cached;
+    const { data: u } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+    return u?.email ?? null;
   }
+  const branchApproverEmail = await emailFor(row.branch_approved_by_user_id);
+  const approverEmail = await emailFor(row.approved_by_user_id);
 
   return {
     id: row.id,
@@ -231,6 +239,9 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     status: row.status,
     created_at: row.created_at,
     submitted_at: row.submitted_at,
+    branch_approved_at: row.branch_approved_at,
+    branch_approved_by_user_id: row.branch_approved_by_user_id,
+    branch_approved_by_email: branchApproverEmail,
     approved_at: row.approved_at,
     approved_by_user_id: row.approved_by_user_id,
     approved_by_email: approverEmail,

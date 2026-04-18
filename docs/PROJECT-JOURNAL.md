@@ -5,11 +5,11 @@ The single source of truth for **where we are right now**. Updated every time a 
 ## Current status
 
 - **Project:** internal B2B procurement platform (SPEC §1).
-- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.2.2a** (HQ Manager role + two-step schema, this PR).
-- **Last merged PR on `main`:** #15 Phase 3.2.1 (transparency + traceability polish).
+- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.2.2b** (two-step approval UI + HQ queue with tabs, this PR).
+- **Last merged PR on `main`:** #17 cart-submit fix (post-3.2.2a flake repair).
 - **Open / paused branches:**
   - `phase-3-3-1-email-infra` (commit `722e2e5`) — built and verified, **paused** pending 3.2.2 landing. Rebase + recipient changes after 3.2.2c merges.
-  - `phase-3-2-2a-schema` — this PR.
+  - `phase-3-2-2b-flow` — this PR.
 - **Phase 2 complete:** all sub-phases (2.1–2.5) merged. See Phase 2 roadmap below.
 - **Proposed Phase 2.6** (Inbound goods & replenishment) stays on [`BACKLOG.md`](./BACKLOG.md); explicitly deferred on 2026-04-18 — may slot in after Phase 3.
 
@@ -34,6 +34,10 @@ Until SPEC §11 is updated, **the accepted phase numbers are the ones that ship 
 | 2026-04-17 | #11 | 2.3-fix | Inventory normaliser | Re-applied PR #9 fix that was lost in squash-merge + regression test. |
 | 2026-04-17 | #12 | 2.4   | CSV import | Upload → preview → commit, papaparse + Zod re-validation. |
 | 2026-04-18 | #13 | 2.5   | Category CRUD | Flat taxonomy CRUD + BACKLOG renumber of inbound-goods proposal to 2.6 + new PROJECT-JOURNAL. |
+| 2026-04-18 | #14 | 3.1   | Cart + order submit | Cart persists as draft order, outstanding-invoice gate, allocate ORD-YYYY-NNNN, audit trail. |
+| 2026-04-18 | #15 | 3.2.1 | Transparency + traceability polish | ActivityTimeline + OrderStatusPill + clickable rows + approver visibility (audit_log RLS extension + users shared-branch helper). |
+| 2026-04-18 | #16 | 3.2.2a | HQ Manager role + two-step approval schema | Adds `branch_approved` status, `branch_approved_*` cols, `hq_operations_manager` role, RLS for HQ + packer narrow, distinct status palette, action-oriented pill labels. Schema-only — behaviour change in 3.2.2b. |
+| 2026-04-18 | #17 | e2e-fix | cart-submit reliability | Self-contained overdue-invoice fixture; replaced `waitForURL` (load-event dependency) with `toHaveURL` (URL polling). |
 
 ## Phase 2 roadmap (status)
 
@@ -162,6 +166,39 @@ Lives in [`docs/BACKLOG.md`](./BACKLOG.md). SPEC §11 is not modified until acce
 - `ActivityTimeline.describeAction` cases for `branch_approve`, `hq_approve`, `auto_cancel_*` — 3.2.2b.
 - Sidebar label switch ("Orders" ↔ "All orders") per S4 — 3.2.2b.
 - Cron + working-days helper + auto-cancel — 3.2.2c.
+
+### 3.2.2b delivery (this PR)
+
+| Item | File | Notes |
+|---|---|---|
+| `approveOrder` → `branchApproveOrder` | `src/lib/actions/approval.ts` | `submitted → branch_approved`. Reservations land here (per SPEC §8.2). Audit action `branch_approve`. Form action: `branchApproveOrderFormAction`. |
+| New `hqApproveOrder` | same file | `branch_approved → approved`. No quantity adjustment, no new reservations. Audit action `hq_approve`. Form action: `hqApproveOrderFormAction`. |
+| `rejectOrder` accepts both source states | same file | `submitted → rejected` (BM, audit `branch_reject`); `branch_approved → rejected` (HQ, audit `hq_reject`, releases reservations via shared `releaseReservationsFor` helper). |
+| `cancelOrder` adds `branch_approved` to cancellable + releases reservations | same file | Branch managers / HQ Manager / admins can cancel pre-shipped. Release path covers `branch_approved | approved | picking`. |
+| Step-1 form (BM) | `src/app/(app)/orders/[id]/_components/approve-form.tsx` | Existing form re-pointed at `branchApproveOrderFormAction`; submit label "Branch-approve order". |
+| Step-2 form (HQ) | `…/_components/hq-approve-form.tsx` (new) | Read-only line table + single "HQ-approve order" submit. No quantity inputs (HQ doesn't adjust). |
+| Order detail role-aware buttons | `src/app/(app)/orders/[id]/page.tsx` | Renders `ApproveForm` only when `submitted` AND BM-of-branch / admin; renders `HqApproveForm` only when `branch_approved` AND HQ / admin. RejectForm + CancelForm follow the same role + state gating. New status banner surfaces both `branch_approved_by_email` and `approved_by_email` independently. |
+| Approvals queue tabs (HQ + admin) | `src/app/(app)/approvals/page.tsx` | Tabbed view — "Awaiting HQ" (default, `branch_approved`), "Awaiting branch" (`submitted`, read-only), "All pending". URL-driven (`?tab=hq|branch|all`), per-tab counts in pill. Pure BM caller still sees the single-tab step-1 view. |
+| `fetchApprovalQueue(statuses)` | `src/lib/db/approvals.ts` | Accepts a status filter; returns the new `branch_approved_by_email` field hydrated via a follow-up `users` lookup. |
+| `fetchVisibleOrders` returns both approver emails | `src/lib/db/orders-list.ts` + `/orders` page | New "Branch-approved by" column on the orders list (HQ + admin's primary cross-branch view); existing "Approved by" remains as the HQ-step column. |
+| Sidebar role-aware label | `src/components/app/app-sidebar.tsx` | "Orders" for branch-scoped roles, "All orders" for HQ / admin / super (decision S4). HQ + admin now also see the "Approvals" entry. |
+| ActivityTimeline action labels | `src/components/app/activity-timeline.tsx` | Added `branch_approve`, `hq_approve`, `branch_reject`, `hq_reject`, `auto_cancel_no_branch_approval`, `auto_cancel_no_hq_approval`. Legacy `approve` / `reject` labels kept so backfilled audit rows still render cleanly. Payload summariser handles the new variants too. |
+
+**Tests added:**
+
+- `tests-e2e/two-step-3-2-2b.spec.ts` — 7 cases:
+  - Full happy path (submit → BM approve → HQ approve), asserts both approver columns, both audit actions
+  - HQ rejects from `branch_approved` → reservations released, audit `hq_reject`
+  - BM rejects from `submitted` → audit `branch_reject`
+  - HQ tabs: "Awaiting HQ" default, `aria-current="page"`, order rendered
+  - HQ tabs: "Awaiting branch" tab shows submitted cross-branch
+  - UI guard: BM doesn't see HQ-approve button on `branch_approved`
+  - UI guard: HQ doesn't see BM-approve button on `submitted`
+- `tests-e2e/approvals.spec.ts` rewritten for the new model: BM-approve assertion now expects `branch_approved`; cancel test now cancels from `branch_approved`; button labels updated.
+
+**Out of scope for 3.2.2b (lands in 3.2.2c):**
+
+- Cron + working-days helper + auto-cancel.
 
 ### In-flight orders at deploy time (carry through to 3.2.2c release notes)
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## [Phase 3.2.2b] — 2026-04-18
+
+### Added
+- **Two-step approval flow** (SPEC §8.2). `branchApproveOrder` flips `submitted → branch_approved` (Branch Manager, with quantity adjustment + reservation creation). New `hqApproveOrder` flips `branch_approved → approved` (HQ Manager, no quantity adjustment, no new reservations). Both audit-log under their step-tagged action names (`branch_approve` / `hq_approve`).
+- **HQ approval queue** at `/approvals` for HQ Managers and admins — tabbed view (Awaiting HQ / Awaiting branch / All pending), URL-driven (`?tab=`), per-tab counts. Branch Managers continue to see the single-tab step-1 view.
+- **Step-2 (HQ) approve form** at `src/app/(app)/orders/[id]/_components/hq-approve-form.tsx` — read-only line table + single confirm action; HQ doesn't adjust quantities (that's the BM's call).
+- **Sidebar role-aware label** — "Orders" for branch-scoped roles, "All orders" for HQ / Administration / Super Admin (decision S4 in `PROJECT-JOURNAL.md`). HQ Managers now also see the Approvals entry.
+- **Order detail status banner** surfaces both approver identities independently (`branch_approved_by_email` + `approved_by_email` with timestamps).
+- **Orders list** gains a "Branch-approved by" column alongside the existing "HQ-approved by" column.
+- ActivityTimeline learns six new action labels: `branch_approve`, `hq_approve`, `branch_reject`, `hq_reject`, `auto_cancel_no_branch_approval`, `auto_cancel_no_hq_approval`. Legacy `approve` / `reject` labels stay so backfilled audit rows from migration `20260418000006` still render cleanly.
+- Playwright e2e (`tests-e2e/two-step-3-2-2b.spec.ts`): full happy path, HQ-reject + reservation release, BM-reject audit-name, HQ tabs, UI guards proving BM can't HQ-approve and vice-versa.
+
+### Changed
+- `rejectOrder` accepts both `submitted` and `branch_approved` source states. The HQ-reject path releases reservations via the new shared `releaseReservationsFor()` helper.
+- `cancelOrder` adds `branch_approved` to the cancellable set; reservation release also covers that state.
+- Existing `approvals.spec.ts` rewritten for the new model: BM-approve now asserts `branch_approved` + `branch_approve` audit; cancel test cancels from `branch_approved`; button labels updated to "Branch-approve order".
+
+### Database
+- No migrations. The schema for two-step approval landed in 3.2.2a (`branch_approved` enum value, `branch_approved_*` columns, HQ Manager role, RLS); this PR is purely behaviour + UI.
+
 ## [Phase 3.2.1] — 2026-04-18
 
 ### Added
