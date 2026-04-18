@@ -21,6 +21,7 @@ import { formatCents } from "@/lib/money";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
 import { CatalogFilters } from "./_components/catalog-filters";
+import { CatalogRow } from "./_components/catalog-row";
 import { StockPill } from "./_components/stock-pill";
 import { ProductDetailDrawer } from "./_components/product-detail-drawer";
 import { ProductFormDrawer } from "./_components/product-form-drawer";
@@ -180,13 +181,18 @@ export default async function CatalogPage({
                   </TableHeader>
                   <TableBody>
                     {rows.map((p) => (
-                      <TableRow
+                      <CatalogRow
                         key={p.id}
-                        className="cursor-pointer"
+                        href={rowHref(p.id)}
                         selected={searchParams.pid === p.id}
                       >
                         <TableCell className="py-1.5">
-                          <Link href={rowHref(p.id)} tabIndex={-1}>
+                          {/* Thumb is decorative; Link kept for keyboard tab order. */}
+                          <Link
+                            href={rowHref(p.id)}
+                            tabIndex={-1}
+                            aria-hidden
+                          >
                             <ProductThumb src={p.image_url} alt={p.name} size={40} />
                           </Link>
                         </TableCell>
@@ -198,11 +204,7 @@ export default async function CatalogPage({
                             {p.sku}
                           </Link>
                         </TableCell>
-                        <TableCell>
-                          <Link href={rowHref(p.id)} className="block h-full text-fg">
-                            {p.name}
-                          </Link>
-                        </TableCell>
+                        <TableCell className="text-fg">{p.name}</TableCell>
                         <TableCell className="hidden md:table-cell text-fg-muted">
                           {p.category_name ?? "—"}
                         </TableCell>
@@ -222,7 +224,7 @@ export default async function CatalogPage({
                             reorderLevel={p.inventory?.reorder_level ?? 0}
                           />
                         </TableCell>
-                      </TableRow>
+                      </CatalogRow>
                     ))}
                   </TableBody>
                 </Table>

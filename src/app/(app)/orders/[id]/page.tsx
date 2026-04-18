@@ -2,7 +2,6 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, AlertCircle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -11,29 +10,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { OrderStatusPill } from "@/components/app/order-status-pill";
+import { ActivityTimeline } from "@/components/app/activity-timeline";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
+import { isAdmin } from "@/lib/auth/roles";
 import { fetchOrderDetail } from "@/lib/db/order-detail";
 import { formatCents } from "@/lib/money";
 import { ApproveForm } from "./_components/approve-form";
 import { RejectForm } from "./_components/reject-form";
 import { CancelForm } from "./_components/cancel-form";
-
-const statusVariant: Record<
-  string,
-  "neutral" | "accent" | "success" | "warning" | "danger"
-> = {
-  draft: "neutral",
-  submitted: "accent",
-  approved: "success",
-  rejected: "danger",
-  picking: "warning",
-  packed: "warning",
-  shipped: "accent",
-  delivered: "success",
-  closed: "neutral",
-  cancelled: "danger",
-};
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -83,22 +68,41 @@ export default async function OrderDetailPage({
           { label: order.order_number },
         ]}
         actions={
-          <div className="flex items-center gap-3">
-            <Badge variant={statusVariant[order.status] ?? "neutral"}>
-              {order.status.replace(/_/g, " ")}
-            </Badge>
-            <Link
-              href="/orders"
-              className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              Back
-            </Link>
-          </div>
+          <Link
+            href="/orders"
+            className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Back
+          </Link>
         }
       />
 
       <div className="space-y-6 px-gutter py-6">
+        {/* Prominent status banner — surfaces lifecycle state above the
+            fold. The pill colour mapping is centralised in OrderStatusPill
+            (SPEC §4 status tokens). */}
+        <section
+          aria-label="Order status"
+          className="flex flex-wrap items-center gap-3"
+        >
+          <OrderStatusPill status={order.status} size="lg" />
+          {order.approved_by_email ? (
+            <span className="text-sm text-fg-muted">
+              <span className="text-fg-muted">
+                {order.status === "rejected" ? "Decided" : "Approved"} by
+              </span>{" "}
+              <span className="text-fg">{order.approved_by_email}</span>
+              {order.approved_at ? (
+                <span className="text-fg-muted">
+                  {" "}
+                  · {formatDate(order.approved_at)}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
+        </section>
+
         {searchParams.error ? (
           <p
             role="alert"
@@ -187,30 +191,11 @@ export default async function OrderDetailPage({
         )}
 
         <section className="space-y-3">
-          <h2 className="text-base font-semibold tracking-tight">Timeline</h2>
-          {order.timeline.length === 0 ? (
-            <p className="text-sm text-fg-muted">No audit entries.</p>
-          ) : (
-            <ol className="space-y-1.5 text-sm">
-              {order.timeline.map((t) => (
-                <li
-                  key={t.id}
-                  className="flex flex-wrap items-center gap-2 rounded-md bg-surface-elevated/40 px-3 py-2"
-                >
-                  <Badge variant="neutral" dot={false}>
-                    {t.action}
-                  </Badge>
-                  <span className="text-fg-muted">
-                    {formatDate(t.created_at)}
-                  </span>
-                  <span className="text-fg-muted">·</span>
-                  <span className="text-fg-muted truncate">
-                    {t.actor_email ?? "system"}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
+          <h2 className="text-base font-semibold tracking-tight">Activity</h2>
+          <ActivityTimeline
+            entries={order.timeline}
+            emptyHint="No activity recorded yet."
+          />
         </section>
       </div>
     </>

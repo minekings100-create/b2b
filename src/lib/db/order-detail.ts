@@ -18,6 +18,7 @@ export type OrderDetail = {
   submitted_at: string | null;
   approved_at: string | null;
   approved_by_user_id: string | null;
+  approved_by_email: string | null;
   rejection_reason: string | null;
   notes: string | null;
   total_net_cents: number;
@@ -202,6 +203,23 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     after_json: a.after_json,
   }));
 
+  // Approver email — pulled from the same map (the approver is also the
+  // actor on the approve audit row). Falls back to a separate lookup if
+  // RLS hid the approve row from this caller (shouldn't happen after the
+  // 20260418000001 policy, but stays defensive).
+  let approverEmail: string | null = null;
+  if (row.approved_by_user_id) {
+    approverEmail = actorEmails.get(row.approved_by_user_id) ?? null;
+    if (!approverEmail) {
+      const { data: approver } = await supabase
+        .from("users")
+        .select("email")
+        .eq("id", row.approved_by_user_id)
+        .maybeSingle();
+      approverEmail = approver?.email ?? null;
+    }
+  }
+
   return {
     id: row.id,
     order_number: row.order_number,
@@ -215,6 +233,7 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     submitted_at: row.submitted_at,
     approved_at: row.approved_at,
     approved_by_user_id: row.approved_by_user_id,
+    approved_by_email: approverEmail,
     rejection_reason: row.rejection_reason,
     notes: row.notes,
     total_net_cents: row.total_net_cents,
