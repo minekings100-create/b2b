@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/precheck-port.mjs 3000 && playwright test",
     "test:e2e:install": "playwright install chromium",
     "db:push": "supabase db push --linked",
     "db:reset": "supabase db reset --linked",

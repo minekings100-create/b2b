@@ -1,0 +1,243 @@
+import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import { ChevronLeft, AlertCircle } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { getUserWithRoles } from "@/lib/auth/session";
+import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
+import { fetchOrderDetail } from "@/lib/db/order-detail";
+import { formatCents } from "@/lib/money";
+import { ApproveForm } from "./_components/approve-form";
+import { RejectForm } from "./_components/reject-form";
+import { CancelForm } from "./_components/cancel-form";
+
+const statusVariant: Record<
+  string,
+  "neutral" | "accent" | "success" | "warning" | "danger"
+> = {
+  draft: "neutral",
+  submitted: "accent",
+  approved: "success",
+  rejected: "danger",
+  picking: "warning",
+  packed: "warning",
+  shipped: "accent",
+  delivered: "success",
+  closed: "neutral",
+  cancelled: "danger",
+};
+
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("nl-NL", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type SearchParams = { error?: string };
+
+export default async function OrderDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: SearchParams;
+}) {
+  const session = await getUserWithRoles();
+  if (!session) redirect("/login");
+
+  const order = await fetchOrderDetail(params.id);
+  if (!order) notFound();
+
+  const admin = isAdmin(session.roles);
+  const isMyBranchManager = session.roles.some(
+    (r) => r.role === "branch_manager" && r.branch_id === order.branch_id,
+  );
+  const canDecide = (admin || isMyBranchManager) && order.status === "submitted";
+  const canCancel =
+    admin ||
+    isMyBranchManager ||
+    (order.created_by_user_id === session.user.id && order.status === "draft");
+  const cancelEligibleStatuses = ["draft", "submitted", "approved", "picking"];
+  const showCancel = canCancel && cancelEligibleStatuses.includes(order.status);
+
+  return (
+    <>
+      <PageHeader
+        title={`Order ${order.order_number}`}
+        description={`Branch ${order.branch_code} · ${order.branch_name} · by ${order.created_by_email ?? "—"}`}
+        breadcrumbs={[
+          { label: "Orders", href: "/orders" },
+          { label: order.order_number },
+        ]}
+        actions={
+          <div className="flex items-center gap-3">
+            <Badge variant={statusVariant[order.status] ?? "neutral"}>
+              {order.status.replace(/_/g, " ")}
+            </Badge>
+            <Link
+              href="/orders"
+              className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Back
+            </Link>
+          </div>
+        }
+      />
+
+      <div className="space-y-6 px-gutter py-6">
+        {searchParams.error ? (
+          <p
+            role="alert"
+            className="inline-flex items-center gap-2 rounded-md bg-danger-subtle/40 ring-1 ring-danger/30 px-3 py-2 text-sm text-danger-subtle-fg"
+          >
+            <AlertCircle className="h-4 w-4" aria-hidden />
+            {searchParams.error}
+          </p>
+        ) : null}
+
+        {order.status === "rejected" && order.rejection_reason ? (
+          <section className="rounded-lg bg-danger-subtle/40 ring-1 ring-inset ring-danger/30 p-4 space-y-1">
+            <p className="label-meta text-danger-subtle-fg">Rejection reason</p>
+            <p className="text-sm text-fg">{order.rejection_reason}</p>
+          </section>
+        ) : null}
+
+        <section className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+          <Meta label="Created" value={formatDate(order.created_at)} />
+          <Meta label="Submitted" value={formatDate(order.submitted_at)} />
+          <Meta
+            label={order.status === "rejected" ? "Decided" : "Approved"}
+            value={formatDate(order.approved_at)}
+          />
+          <Meta label="Total" value={formatCents(order.total_gross_cents)} mono />
+        </section>
+
+        {canDecide ? (
+          <>
+            <section className="space-y-3">
+              <h2 className="text-base font-semibold tracking-tight">
+                Review
+              </h2>
+              <ApproveForm orderId={order.id} items={order.items} />
+            </section>
+            <div className="flex flex-wrap items-center gap-2">
+              <RejectForm orderId={order.id} />
+              {showCancel ? <CancelForm orderId={order.id} /> : null}
+            </div>
+          </>
+        ) : (
+          <>
+            <section className="space-y-3">
+              <h2 className="text-base font-semibold tracking-tight">Items</h2>
+              <div className="overflow-hidden rounded-lg ring-1 ring-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[140px]">SKU</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead className="w-[80px] text-right">Req.</TableHead>
+                      <TableHead className="w-[80px] text-right">Appr.</TableHead>
+                      <TableHead className="w-[80px] text-right">Packed</TableHead>
+                      <TableHead className="w-[80px] text-right">Ship.</TableHead>
+                      <TableHead className="w-[96px] text-right">Price</TableHead>
+                      <TableHead className="w-[112px] text-right">Line total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {order.items.map((it) => (
+                      <TableRow key={it.id}>
+                        <TableCell className="font-numeric text-fg-muted">
+                          {it.sku}
+                        </TableCell>
+                        <TableCell>{it.name}</TableCell>
+                        <TableCell numeric>{it.quantity_requested}</TableCell>
+                        <TableCell numeric>
+                          {it.quantity_approved ?? "—"}
+                        </TableCell>
+                        <TableCell numeric>{it.quantity_packed}</TableCell>
+                        <TableCell numeric>{it.quantity_shipped}</TableCell>
+                        <TableCell numeric>
+                          {formatCents(it.unit_price_cents_snapshot)}
+                        </TableCell>
+                        <TableCell numeric>
+                          {formatCents(it.line_net_cents)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </section>
+            {showCancel ? <CancelForm orderId={order.id} /> : null}
+          </>
+        )}
+
+        <section className="space-y-3">
+          <h2 className="text-base font-semibold tracking-tight">Timeline</h2>
+          {order.timeline.length === 0 ? (
+            <p className="text-sm text-fg-muted">No audit entries.</p>
+          ) : (
+            <ol className="space-y-1.5 text-sm">
+              {order.timeline.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex flex-wrap items-center gap-2 rounded-md bg-surface-elevated/40 px-3 py-2"
+                >
+                  <Badge variant="neutral" dot={false}>
+                    {t.action}
+                  </Badge>
+                  <span className="text-fg-muted">
+                    {formatDate(t.created_at)}
+                  </span>
+                  <span className="text-fg-muted">·</span>
+                  <span className="text-fg-muted truncate">
+                    {t.actor_email ?? "system"}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
+    </>
+  );
+}
+
+function Meta({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <p className="label-meta">{label}</p>
+      <p
+        className={
+          mono
+            ? "text-sm font-numeric text-fg"
+            : "text-sm text-fg"
+        }
+      >
+        {value}
+      </p>
+    </div>
+  );
+}

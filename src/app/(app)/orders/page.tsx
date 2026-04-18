@@ -91,9 +91,14 @@ export default async function OrdersPage() {
               </TableHeader>
               <TableBody>
                 {orders.map((o) => (
-                  <TableRow key={o.id}>
-                    <TableCell className="font-numeric text-fg-muted">
-                      {o.order_number}
+                  <TableRow key={o.id} className="cursor-pointer">
+                    <TableCell className="font-numeric">
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="text-fg hover:underline"
+                      >
+                        {o.order_number}
+                      </Link>
                     </TableCell>
                     <TableCell className="font-numeric">
                       {o.branch_code}
