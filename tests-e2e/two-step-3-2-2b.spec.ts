@@ -377,7 +377,85 @@ test.describe("3.2.2b HQ approval-queue tabs", () => {
       page.locator(`a[href="/orders/${orderId}"]`),
     ).toBeVisible({ timeout: 10_000 });
   });
+
+  test("status pill column renders on every tab (matches /orders treatment)", async ({
+    page,
+  }) => {
+    // One submitted (BM queue), one branch_approved (HQ queue) — gives
+    // the All-pending tab a mixed-status sample to assert against.
+    await makeSubmittedOrder({ authorEmail: "ams.user1@example.nl" });
+    await makeBranchApprovedOrder("ams.user1@example.nl", "ams.mgr@example.nl");
+
+    await signIn(page, "hq.ops@example.nl");
+
+    // Each tab must surface the Status column header *and* at least one
+    // pill in the body. The pill itself is identifiable by the
+    // `data-status` attribute exposed by OrderStatusPill.
+    for (const tab of ["hq", "branch", "all"] as const) {
+      await page.goto(`/approvals?tab=${tab}`);
+      await expect(
+        page.getByRole("columnheader", { name: "Status" }),
+      ).toBeVisible();
+      const pills = page.locator("tbody [data-status]");
+      await expect(pills.first()).toBeVisible({ timeout: 10_000 });
+    }
+  });
+
+  test("'All pending' tab renders both submitted and branch_approved pills (mixed states)", async ({
+    page,
+  }) => {
+    // Seed one of each. Without these the assertion can't tell if the
+    // pill renderer just happens to map to one colour family.
+    await makeSubmittedOrder({ authorEmail: "ams.user1@example.nl" });
+    await makeBranchApprovedOrder("ams.user1@example.nl", "ams.mgr@example.nl");
+
+    await signIn(page, "hq.ops@example.nl");
+    await page.goto("/approvals?tab=all");
+
+    const submittedPill = page.locator(
+      'tbody [data-status="submitted"]',
+    );
+    const branchApprovedPill = page.locator(
+      'tbody [data-status="branch_approved"]',
+    );
+    await expect(submittedPill.first()).toBeVisible({ timeout: 10_000 });
+    await expect(branchApprovedPill.first()).toBeVisible({ timeout: 10_000 });
+  });
 });
+
+async function makeBranchApprovedOrder(
+  authorEmail: string,
+  managerEmail: string,
+): Promise<{ id: string; orderNumber: string }> {
+  const author = await userId(authorEmail);
+  const mgr = await userId(managerEmail);
+  const { data: roles } = await admin
+    .from("user_branch_roles")
+    .select("branch_id")
+    .eq("user_id", author)
+    .eq("role", "branch_user")
+    .not("branch_id", "is", null)
+    .single();
+  const branchId = roles!.branch_id!;
+  const orderNumber = `${ORDER_PREFIX}BA-${Date.now()}-${Math.floor(
+    Math.random() * 9999,
+  )}`;
+  const now = new Date();
+  const { data: order } = await admin
+    .from("orders")
+    .insert({
+      order_number: orderNumber,
+      branch_id: branchId,
+      created_by_user_id: author,
+      status: "branch_approved",
+      submitted_at: new Date(now.getTime() - 60_000).toISOString(),
+      branch_approved_at: now.toISOString(),
+      branch_approved_by_user_id: mgr,
+    })
+    .select("id")
+    .single();
+  return { id: order!.id, orderNumber };
+}
 
 test.describe("3.2.2b action-layer guards", () => {
   test("BM cannot HQ-approve a branch_approved order — server action returns wrong-state error", async ({

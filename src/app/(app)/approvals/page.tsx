@@ -150,7 +150,7 @@ export default async function ApprovalsPage({
           />
         </div>
       ) : (
-        <QueueTable rows={rows} showStatus={tab === "all"} showBranchApprover={tab !== "branch"} />
+        <QueueTable rows={rows} showBranchApprover={tab !== "branch"} />
       )}
     </>
   );
@@ -209,11 +209,9 @@ function ApprovalTabs({
 
 function QueueTable({
   rows,
-  showStatus,
   showBranchApprover,
 }: {
   rows: ApprovalQueueRow[];
-  showStatus: boolean;
   showBranchApprover: boolean;
 }) {
   return (
@@ -228,9 +226,12 @@ function QueueTable({
               {showBranchApprover ? (
                 <TableHead>Branch-approved by</TableHead>
               ) : null}
-              {showStatus ? (
-                <TableHead className="w-[140px]">Status</TableHead>
-              ) : null}
+              {/* Status pill always present — single source of visual
+                  truth for "what's actionable on this row", matching
+                  /orders. Critical for the All-pending tab where
+                  submitted (read-only, blue) and branch_approved
+                  (actionable, amber) sit side-by-side. */}
+              <TableHead className="w-[150px]">Status</TableHead>
               <TableHead className="w-[160px]">Waiting since</TableHead>
               <TableHead className="w-[70px] text-right">Lines</TableHead>
               <TableHead className="w-[120px] text-right">Total</TableHead>
@@ -260,11 +261,9 @@ function QueueTable({
                     {o.branch_approved_by_email ?? "—"}
                   </TableCell>
                 ) : null}
-                {showStatus ? (
-                  <TableCell>
-                    <OrderStatusPill status={o.status} />
-                  </TableCell>
-                ) : null}
+                <TableCell>
+                  <OrderStatusPill status={o.status} />
+                </TableCell>
                 <TableCell className="text-fg-muted">
                   {formatDate(
                     o.status === "branch_approved"
@@ -307,7 +306,6 @@ function renderQueue(opts: {
       ) : (
         <QueueTable
           rows={opts.rows}
-          showStatus={opts.tab === "all"}
           showBranchApprover={opts.tab !== "branch"}
         />
       )}
