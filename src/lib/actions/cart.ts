@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { hasAnyRole } from "@/lib/auth/roles";
 import {
@@ -17,6 +18,15 @@ import {
   fetchOutstandingInvoicesForBranch,
   recomputeOrderTotals,
 } from "@/lib/db/orders";
+import {
+  adminAudience,
+  managersForBranch,
+} from "@/lib/email/recipients";
+import { notify } from "@/lib/email/notify";
+import {
+  renderOrderSubmitted,
+  renderOrderSubmittedWhileOverdue,
+} from "@/lib/email/templates";
 import type { Json } from "@/lib/supabase/types";
 
 export type CartActionState =
@@ -398,6 +408,8 @@ export async function submitOrder(
     .eq("status", "draft");
   if (updErr) return { error: updErr.message };
 
+  const usedOverride =
+    parsed.data.confirm_override && outstanding.count > 0;
   await supabase.from("audit_log").insert({
     entity_type: "order",
     entity_id: order.id,
@@ -407,11 +419,121 @@ export async function submitOrder(
     after_json: {
       status: "submitted",
       order_number: orderNumber,
-      override_outstanding: parsed.data.confirm_override && outstanding.count > 0,
+      override_outstanding: usedOverride,
     } as unknown as Json,
+  });
+
+  // Side-effect: notify branch managers (always) + admin pool (only when
+  // the outstanding-invoice gate was overridden, per SPEC §8.1.4). Uses
+  // the service-role client because notifications.insert is admin-only and
+  // the branch-user context wouldn't satisfy the existing policy.
+  await emitOrderSubmittedNotifications({
+    orderId: order.id,
+    orderNumber,
+    branchId: order.branch_id,
+    submitterEmail: session.user.email ?? "—",
+    usedOverride,
+    outstandingCount: outstanding.count,
+    outstandingTotalCents: outstanding.total_cents,
   });
 
   revalidatePath("/cart");
   revalidatePath("/orders");
   redirect("/orders");
+}
+
+/**
+ * Resolve recipients + render templates + write notifications rows for the
+ * submit lifecycle event. Pulled out of submitOrder so the action body
+ * stays readable. Failures are swallowed (logged) — a notifications outage
+ * must not undo a submitted order.
+ */
+async function emitOrderSubmittedNotifications(opts: {
+  orderId: string;
+  orderNumber: string;
+  branchId: string;
+  submitterEmail: string;
+  usedOverride: boolean;
+  outstandingCount: number;
+  outstandingTotalCents: number;
+}): Promise<void> {
+  try {
+    const adm = createAdminClient();
+    const { data: branch } = await adm
+      .from("branches")
+      .select("branch_code, name")
+      .eq("id", opts.branchId)
+      .maybeSingle();
+    const branchCode = branch?.branch_code ?? "—";
+    const branchName = branch?.name ?? "—";
+
+    const { data: order } = await adm
+      .from("orders")
+      .select("total_gross_cents")
+      .eq("id", opts.orderId)
+      .maybeSingle();
+    const { count: itemCount } = await adm
+      .from("order_items")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", opts.orderId);
+
+    const managers = await managersForBranch(adm, opts.branchId);
+    if (managers.length > 0) {
+      const rendered = renderOrderSubmitted({
+        order_id: opts.orderId,
+        order_number: opts.orderNumber,
+        branch_code: branchCode,
+        branch_name: branchName,
+        submitter_email: opts.submitterEmail,
+        total_gross_cents: order?.total_gross_cents ?? 0,
+        item_count: itemCount ?? 0,
+      });
+      await notify({
+        db: adm,
+        type: "order_submitted",
+        recipients: managers,
+        rendered,
+        payload: {
+          order_id: opts.orderId,
+          order_number: opts.orderNumber,
+          branch_code: branchCode,
+          href: `/orders/${opts.orderId}`,
+        },
+      });
+    }
+
+    if (opts.usedOverride) {
+      const admins = await adminAudience(adm);
+      if (admins.length > 0) {
+        const rendered = renderOrderSubmittedWhileOverdue({
+          order_id: opts.orderId,
+          order_number: opts.orderNumber,
+          branch_code: branchCode,
+          branch_name: branchName,
+          submitter_email: opts.submitterEmail,
+          outstanding_count: opts.outstandingCount,
+          outstanding_total_cents: opts.outstandingTotalCents,
+        });
+        await notify({
+          db: adm,
+          type: "order_submitted_while_overdue",
+          recipients: admins,
+          rendered,
+          payload: {
+            order_id: opts.orderId,
+            order_number: opts.orderNumber,
+            branch_code: branchCode,
+            outstanding_count: opts.outstandingCount,
+            outstanding_total_cents: opts.outstandingTotalCents,
+            href: `/orders/${opts.orderId}`,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[notify] order_submitted side-effect failed for ${opts.orderNumber}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }

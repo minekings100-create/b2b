@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addWorkingDays } from "@/lib/dates/working-days";
+import {
+  adminAudience,
+  hqManagers,
+  managersForBranch,
+  userById,
+  type Recipient,
+} from "@/lib/email/recipients";
+import { notify } from "@/lib/email/notify";
+import { renderOrderAutoCancelled } from "@/lib/email/templates";
 import type { Database, Json } from "@/lib/supabase/types";
 
 /**
@@ -38,6 +47,8 @@ type StaleOrder = {
   id: string;
   order_number: string;
   branch_id: string;
+  created_by_user_id: string;
+  branch_approved_by_user_id: string | null;
   status: "submitted" | "branch_approved";
   submitted_at: string | null;
   branch_approved_at: string | null;
@@ -101,7 +112,9 @@ async function loadStaleOrders(
   const [s1, s2] = await Promise.all([
     adm
       .from("orders")
-      .select("id, order_number, branch_id, status, submitted_at, branch_approved_at")
+      .select(
+        "id, order_number, branch_id, created_by_user_id, branch_approved_by_user_id, status, submitted_at, branch_approved_at",
+      )
       .eq("status", "submitted")
       .lt("submitted_at", step1Cutoff.toISOString())
       .is("deleted_at", null)
@@ -109,7 +122,9 @@ async function loadStaleOrders(
       .limit(500),
     adm
       .from("orders")
-      .select("id, order_number, branch_id, status, submitted_at, branch_approved_at")
+      .select(
+        "id, order_number, branch_id, created_by_user_id, branch_approved_by_user_id, status, submitted_at, branch_approved_at",
+      )
       .eq("status", "branch_approved")
       .lt("branch_approved_at", step2Cutoff.toISOString())
       .is("deleted_at", null)
@@ -169,7 +184,83 @@ async function cancelOne(
       cron: "auto-cancel-stale-orders",
     } as unknown as Json,
   });
+
+  // Side effect: per SPEC §8.8, the auto-cancel email goes to:
+  //   step 1 timeout → creator + branch managers
+  //   step 2 timeout → creator + branch manager who approved step 1 +
+  //                    HQ Managers + administration
+  // A single template (`renderOrderAutoCancelled`) covers both — the
+  // `step` discriminator drives the subject + body framing.
+  await emitAutoCancelNotifications(adm, order);
   return true;
+}
+
+async function emitAutoCancelNotifications(
+  adm: SupabaseClient<Database>,
+  order: StaleOrder,
+): Promise<void> {
+  try {
+    const { data: branch } = await adm
+      .from("branches")
+      .select("branch_code, name")
+      .eq("id", order.branch_id)
+      .maybeSingle();
+    const branchCode = branch?.branch_code ?? "—";
+    const branchName = branch?.name ?? "—";
+
+    const step: "branch" | "hq" =
+      order.status === "submitted" ? "branch" : "hq";
+    const waitedDays = step === "branch" ? STEP_1_DAYS : STEP_2_DAYS;
+
+    const recipients: Recipient[] = [];
+    const seen = new Set<string>();
+    const push = (rs: Array<Recipient | null>) => {
+      for (const r of rs) {
+        if (!r || seen.has(r.user_id)) continue;
+        seen.add(r.user_id);
+        recipients.push(r);
+      }
+    };
+
+    push([await userById(adm, order.created_by_user_id)]);
+    push(await managersForBranch(adm, order.branch_id));
+    if (step === "hq") {
+      if (order.branch_approved_by_user_id) {
+        push([await userById(adm, order.branch_approved_by_user_id)]);
+      }
+      push(await hqManagers(adm));
+      push(await adminAudience(adm));
+    }
+    if (recipients.length === 0) return;
+
+    const rendered = renderOrderAutoCancelled({
+      order_id: order.id,
+      order_number: order.order_number,
+      branch_code: branchCode,
+      branch_name: branchName,
+      step,
+      waited_days: waitedDays,
+    });
+    await notify({
+      db: adm,
+      type: "order_auto_cancelled",
+      recipients,
+      rendered,
+      payload: {
+        order_id: order.id,
+        order_number: order.order_number,
+        branch_code: branchCode,
+        step,
+        waited_days: waitedDays,
+        href: `/orders/${order.id}`,
+      },
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[notify] order_auto_cancelled failed for ${order.id}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 /**

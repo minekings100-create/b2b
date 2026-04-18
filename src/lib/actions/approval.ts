@@ -11,7 +11,23 @@ import {
   CancelOrderInput,
   RejectOrderInput,
 } from "@/lib/validation/approval";
-import type { Json } from "@/lib/supabase/types";
+import {
+  hqManagers,
+  managersForBranch,
+  packerPool,
+  userById,
+  type Recipient,
+} from "@/lib/email/recipients";
+import { notify } from "@/lib/email/notify";
+import {
+  renderOrderApproved,
+  renderOrderBranchApproved,
+  renderOrderCancelled,
+  renderOrderHqRejectedToBranchManager,
+  renderOrderRejected,
+} from "@/lib/email/templates";
+import type { Database, Json } from "@/lib/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Two-step approval (3.2.2b, SPEC §8.2):
@@ -244,6 +260,16 @@ export async function branchApproveOrder(
     } as unknown as Json,
   });
 
+  // Side effect: tell HQ Managers a new step-2 candidate landed in
+  // their queue. Reservation creation already happened above.
+  await emitOrderBranchApproved({
+    orderId: order.id,
+    branchId: order.branch_id,
+    branchApproverEmail: session.user.email ?? "—",
+    itemCount: updates.filter((u) => u.quantity_approved > 0).length,
+    hasBackorder: backorder,
+  });
+
   revalidatePath("/approvals");
   revalidatePath("/orders");
   revalidatePath(`/orders/${order.id}`);
@@ -323,6 +349,13 @@ export async function hqApproveOrder(
     actor_user_id: session.user.id,
     before_json: { status: "branch_approved" } as Json,
     after_json: { status: "approved" } as unknown as Json,
+  });
+
+  // Side effect: notify the packer pool — order is now ready to pick.
+  await emitOrderApproved({
+    orderId: order.id,
+    branchId: order.branch_id,
+    approverEmail: session.user.email ?? "—",
   });
 
   revalidatePath("/approvals");
@@ -424,6 +457,19 @@ export async function rejectOrder(
     } as unknown as Json,
   });
 
+  // Side effect: tell the creator (always); for HQ-step rejections also
+  // tell the BM who approved step 1, with the "you were overruled"
+  // framing so they don't read the same email as the creator.
+  await emitOrderRejected({
+    orderId: order.id,
+    branchId: order.branch_id,
+    creatorUserId: order.created_by_user_id,
+    branchApproverUserId: order.branch_approved_by_user_id,
+    reason: parsed.data.reason,
+    rejecterEmail: session.user.email ?? "—",
+    fromBranch,
+  });
+
   revalidatePath("/approvals");
   revalidatePath("/orders");
   revalidatePath(`/orders/${order.id}`);
@@ -523,6 +569,14 @@ export async function cancelOrder(
     } as unknown as Json,
   });
 
+  await emitOrderCancelled({
+    orderId: order.id,
+    branchId: order.branch_id,
+    priorStatus: order.status,
+    cancellerEmail: session.user.email ?? "—",
+    reason: parsed.data.reason ?? null,
+  });
+
   revalidatePath("/approvals");
   revalidatePath("/orders");
   revalidatePath(`/orders/${order.id}`);
@@ -584,5 +638,247 @@ async function releaseReservationsFor(
       .update({ quantity_reserved: next })
       .eq("product_id", r.product_id);
     current.set(r.product_id, next);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Notification emitters (3.3.1, post-3.2.2-rebase). Each is wrapped in
+// try/catch — a notifications outage must not roll back the underlying
+// state change. All use the service-role client because notifications.insert
+// is admin-only and the acting user usually doesn't have RLS access to
+// every recipient.
+// ---------------------------------------------------------------------------
+
+type AdminDb = SupabaseClient<Database>;
+
+async function loadOrderMeta(adm: AdminDb, orderId: string) {
+  const [{ data: order }, { count: itemCount }] = await Promise.all([
+    adm
+      .from("orders")
+      .select("order_number, total_gross_cents, branch_id")
+      .eq("id", orderId)
+      .maybeSingle(),
+    adm
+      .from("order_items")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", orderId),
+  ]);
+  if (!order) return null;
+  const { data: branch } = await adm
+    .from("branches")
+    .select("branch_code, name")
+    .eq("id", order.branch_id)
+    .maybeSingle();
+  return {
+    order_number: order.order_number,
+    total_gross_cents: order.total_gross_cents,
+    item_count: itemCount ?? 0,
+    branch_code: branch?.branch_code ?? "—",
+    branch_name: branch?.name ?? "—",
+  };
+}
+
+async function emitOrderBranchApproved(opts: {
+  orderId: string;
+  branchId: string;
+  branchApproverEmail: string;
+  itemCount: number;
+  hasBackorder: boolean;
+}): Promise<void> {
+  try {
+    const adm = createAdminClient();
+    const meta = await loadOrderMeta(adm, opts.orderId);
+    if (!meta) return;
+    const recipients = await hqManagers(adm);
+    if (recipients.length === 0) return;
+    const rendered = renderOrderBranchApproved({
+      order_id: opts.orderId,
+      order_number: meta.order_number,
+      branch_code: meta.branch_code,
+      branch_name: meta.branch_name,
+      branch_approver_email: opts.branchApproverEmail,
+      item_count: opts.itemCount,
+      total_gross_cents: meta.total_gross_cents,
+      has_backorder: opts.hasBackorder,
+    });
+    await notify({
+      db: adm,
+      type: "order_branch_approved",
+      recipients,
+      rendered,
+      payload: {
+        order_id: opts.orderId,
+        order_number: meta.order_number,
+        branch_code: meta.branch_code,
+        has_backorder: opts.hasBackorder,
+        href: `/orders/${opts.orderId}`,
+      },
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[notify] order_branch_approved failed for ${opts.orderId}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+async function emitOrderApproved(opts: {
+  orderId: string;
+  branchId: string;
+  approverEmail: string;
+}): Promise<void> {
+  try {
+    const adm = createAdminClient();
+    const meta = await loadOrderMeta(adm, opts.orderId);
+    if (!meta) return;
+    const recipients = await packerPool(adm);
+    if (recipients.length === 0) return;
+    const rendered = renderOrderApproved({
+      order_id: opts.orderId,
+      order_number: meta.order_number,
+      branch_code: meta.branch_code,
+      branch_name: meta.branch_name,
+      approver_email: opts.approverEmail,
+      item_count: meta.item_count,
+      // The backorder flag was set at step 1; we don't re-check here.
+      has_backorder: false,
+    });
+    await notify({
+      db: adm,
+      type: "order_approved",
+      recipients,
+      rendered,
+      payload: {
+        order_id: opts.orderId,
+        order_number: meta.order_number,
+        href: `/orders/${opts.orderId}`,
+      },
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[notify] order_approved failed for ${opts.orderId}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+async function emitOrderRejected(opts: {
+  orderId: string;
+  branchId: string;
+  creatorUserId: string;
+  branchApproverUserId: string | null;
+  reason: string;
+  rejecterEmail: string;
+  fromBranch: boolean;
+}): Promise<void> {
+  try {
+    const adm = createAdminClient();
+    const meta = await loadOrderMeta(adm, opts.orderId);
+    if (!meta) return;
+
+    // Always notify the creator with the standard rejection template.
+    const creator = await userById(adm, opts.creatorUserId);
+    if (creator) {
+      const rendered = renderOrderRejected({
+        order_id: opts.orderId,
+        order_number: meta.order_number,
+        branch_code: meta.branch_code,
+        reason: opts.reason,
+        rejecter_email: opts.rejecterEmail,
+      });
+      await notify({
+        db: adm,
+        type: opts.fromBranch ? "order_branch_rejected" : "order_hq_rejected",
+        recipients: [creator],
+        rendered,
+        payload: {
+          order_id: opts.orderId,
+          order_number: meta.order_number,
+          reason: opts.reason,
+          step: opts.fromBranch ? "branch" : "hq",
+          href: `/orders/${opts.orderId}`,
+        },
+      });
+    }
+
+    // For HQ-step rejection, *also* tell the BM who approved step 1 —
+    // they need the "you were overruled" framing, not the creator-facing
+    // copy. Skip if the BM is the creator (single-person edge case).
+    if (
+      !opts.fromBranch &&
+      opts.branchApproverUserId &&
+      opts.branchApproverUserId !== opts.creatorUserId
+    ) {
+      const bm = await userById(adm, opts.branchApproverUserId);
+      if (bm) {
+        const rendered = renderOrderHqRejectedToBranchManager({
+          order_id: opts.orderId,
+          order_number: meta.order_number,
+          branch_code: meta.branch_code,
+          reason: opts.reason,
+          rejecter_email: opts.rejecterEmail,
+        });
+        await notify({
+          db: adm,
+          type: "order_hq_rejected_to_branch_manager",
+          recipients: [bm],
+          rendered,
+          payload: {
+            order_id: opts.orderId,
+            order_number: meta.order_number,
+            reason: opts.reason,
+            href: `/orders/${opts.orderId}`,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[notify] order_rejected (${opts.fromBranch ? "branch" : "hq"}) failed for ${opts.orderId}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+async function emitOrderCancelled(opts: {
+  orderId: string;
+  branchId: string;
+  priorStatus: string;
+  cancellerEmail: string;
+  reason: string | null;
+}): Promise<void> {
+  try {
+    const adm = createAdminClient();
+    const meta = await loadOrderMeta(adm, opts.orderId);
+    if (!meta) return;
+    const recipients: Recipient[] = await managersForBranch(adm, opts.branchId);
+    if (recipients.length === 0) return;
+    const rendered = renderOrderCancelled({
+      order_id: opts.orderId,
+      order_number: meta.order_number,
+      branch_code: meta.branch_code,
+      branch_name: meta.branch_name,
+      prior_status: opts.priorStatus,
+      canceller_email: opts.cancellerEmail,
+      reason: opts.reason,
+    });
+    await notify({
+      db: adm,
+      type: "order_cancelled",
+      recipients,
+      rendered,
+      payload: {
+        order_id: opts.orderId,
+        order_number: meta.order_number,
+        prior_status: opts.priorStatus,
+        reason: opts.reason,
+        href: `/orders/${opts.orderId}`,
+      },
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[notify] order_cancelled failed for ${opts.orderId}: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 }
