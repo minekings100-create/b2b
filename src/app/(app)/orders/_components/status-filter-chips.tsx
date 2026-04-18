@@ -14,11 +14,18 @@ import type { OrderStatusFilter } from "@/lib/db/orders-list";
  *   Done         → delivered, closed                   (completed)
  *   Halted       → rejected, cancelled                 (stopped early)
  *
- * The first iteration (3.2.2a) used a 1px `h-4 w-px` divider which was
- * effectively invisible. This iteration uses `border-l` on the group
- * wrapper with `pl-3 ml-3` breathing room — same visual weight as the
- * §4 sidebar dividers, immediately readable. Active chip uses the strong
- * accent (indigo-600 fill, white text) — `accent-subtle` was too quiet.
+ * Iteration log:
+ *   v1: a 1px `h-4 w-px` divider — invisible at normal density.
+ *   v2: `border-l border-zinc-200/800` with breathing room — visible
+ *       in light mode, still too subtle in dark mode.
+ *   v3 (this): tiny uppercase group labels above each group's chip
+ *       row. Explicit beats subtle; the divider becomes redundant
+ *       once the structure is named, so it's gone. The "All" reset
+ *       chip gets no header (it speaks for itself).
+ *
+ * Active chip uses the strong accent (indigo-600 fill, white text) —
+ * `accent-subtle` was too quiet. `aria-pressed` is set on every chip
+ * so screen readers + tests have an unambiguous signal.
  *
  * Draft is intentionally omitted — drafts are personal carts, not
  * "orders" in the §8.2 sense.
@@ -74,50 +81,61 @@ export function StatusFilterChips({
   return (
     <nav
       aria-label="Filter orders by status"
-      className="flex flex-wrap items-center gap-y-1.5 px-gutter pt-2"
+      className="flex flex-wrap items-start gap-x-6 gap-y-3 px-gutter pt-3"
     >
-      {GROUPS.map((group, gi) => (
-        <div
-          key={group.name}
-          data-group={group.name.toLowerCase()}
-          className={cn(
-            "flex flex-wrap items-center gap-1.5",
-            // Visible 1px divider between groups + breathing room. The
-            // border collapses on wrap because the parent is `flex-wrap`
-            // — acceptable; on narrow widths a vertical line in the
-            // middle of a wrapped row would be confusing anyway.
-            gi > 0 && "ml-3 border-l border-zinc-200 pl-3 dark:border-zinc-800",
-          )}
-          aria-label={group.name}
-        >
-          {group.chips.map((chip) => {
-            const href =
-              chip.value === "all"
-                ? "/orders"
-                : `/orders?status=${chip.value}`;
-            const isActive = chip.value === active;
-            return (
-              <Link
-                key={chip.value}
-                href={href}
-                data-active={isActive || undefined}
-                aria-pressed={isActive}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors duration-150",
-                  isActive
-                    ? // Strong active state — accent fill, white text.
-                      // Reads at a glance; matches `Button variant="primary"`.
-                      "bg-accent text-accent-fg ring-accent shadow-sm"
-                    : "bg-surface text-fg-muted ring-border hover:text-fg hover:bg-surface-elevated",
-                )}
-              >
-                {chip.label}
-              </Link>
-            );
-          })}
-        </div>
-      ))}
+      {GROUPS.map((group) => {
+        const isAllGroup = group.name === "All";
+        return (
+          <div
+            key={group.name}
+            data-group={group.name.toLowerCase()}
+            className="flex flex-col gap-1"
+            aria-label={group.name}
+          >
+            {/* Group label — explicit beats subtle. The "All" reset chip
+                gets no header (it's its own purpose). */}
+            {!isAllGroup ? (
+              // Emit uppercase at source so the DOM text matches what's
+              // visible — Tailwind's `uppercase` class only transforms
+              // rendering; tests + screen readers still see the source
+              // text.
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+                {group.name.toUpperCase()}
+              </span>
+            ) : (
+              <span aria-hidden className="h-[14px]" />
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {group.chips.map((chip) => {
+                const href =
+                  chip.value === "all"
+                    ? "/orders"
+                    : `/orders?status=${chip.value}`;
+                const isActive = chip.value === active;
+                return (
+                  <Link
+                    key={chip.value}
+                    href={href}
+                    data-active={isActive || undefined}
+                    aria-pressed={isActive}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors duration-150",
+                      isActive
+                        ? // Strong active state — accent fill, white text.
+                          // Reads at a glance; matches `Button variant="primary"`.
+                          "bg-accent text-accent-fg ring-accent shadow-sm"
+                        : "bg-surface text-fg-muted ring-border hover:text-fg hover:bg-surface-elevated",
+                    )}
+                  >
+                    {chip.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </nav>
   );
 }

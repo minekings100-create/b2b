@@ -67,30 +67,31 @@ test.describe("3.2.2a HQ /orders visibility + chips + palette", () => {
     }
   });
 
-  test("filter chip groups are visually distinct (post-visual-review fix)", async ({
+  test("filter chip groups are visually labelled (post-visual-review fix v3)", async ({
     page,
   }) => {
     await signIn(page, "hq.ops@example.nl");
     await page.goto("/orders");
 
-    // The four lifecycle groups + "All" should each be marked with a
-    // `data-group` attribute on their wrapper. Earlier iteration used a
-    // `h-4 w-px` divider that was effectively invisible; this test
-    // catches a regression to that invisible state by asserting the
-    // group wrapper carries the data attribute *and* the non-first
-    // groups carry a left border class.
-    const groups = page.locator("nav[aria-label='Filter orders by status'] [data-group]");
-    await expect(groups).toHaveCount(5);
+    const nav = page.getByRole("navigation", {
+      name: "Filter orders by status",
+    });
 
-    // Skip the first group ("All"); the remaining four must have border-l
-    // (the visible 1px divider).
-    for (const groupName of ["pending", "fulfillment", "done", "halted"]) {
-      const wrapper = page.locator(`[data-group="${groupName}"]`);
-      const cls = (await wrapper.getAttribute("class")) ?? "";
-      expect(cls, `group ${groupName} missing border-l divider`).toMatch(
-        /\bborder-l\b/,
-      );
+    // Each lifecycle group ships a small uppercase header so the user
+    // can scan structure at a glance. Earlier iterations relied on a
+    // 1px divider which was invisible in dark mode — this test catches
+    // a regression to that invisible-only state.
+    for (const label of ["PENDING", "FULFILLMENT", "DONE", "HALTED"]) {
+      await expect(
+        nav.getByText(label, { exact: true }),
+      ).toBeVisible();
     }
+
+    // Wrappers still carry data-group attrs so future tests + styling
+    // can target individual groups. There are 5 (the four labelled
+    // groups + the unlabelled "All" reset).
+    const groups = nav.locator("[data-group]");
+    await expect(groups).toHaveCount(5);
   });
 
   test("active filter chip carries aria-pressed='true' and the strong-active class", async ({
