@@ -171,6 +171,8 @@ A user can hold multiple role+branch combinations (e.g. manager at branch A, use
 
 **Packer — visibility narrowed (3.2.2):** packers see orders only in fulfilment-stage statuses (`approved`, `picking`, `packed`, `shipped`, `delivered`). Drafts, `submitted`, `branch_approved`, `rejected`, `closed`, and `cancelled` are hidden — they are not the packer's concern and the narrower view reduces queue noise.
 
+**Order edit (Phase 3.4):** edit rights apply only when `status = 'submitted'`. The order creator (the branch user who submitted), the branch manager of the order's branch, Administration, and Super Admin can edit. **HQ Manager cannot edit** — they only approve / reject at step 2. Once `branch_approved`, the order is frozen for the rest of its lifecycle. See §8.9 for the workflow.
+
 ## 6. Data Model (Postgres)
 
 All tables have `id uuid primary key default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz`, `deleted_at timestamptz` (soft delete) unless noted.
@@ -188,8 +190,9 @@ All tables have `id uuid primary key default gen_random_uuid()`, `created_at tim
 - **inventory_movements** — append-only: `product_id`, `delta`, `reason` enum (`order_reserved`, `order_released`, `packed`, `adjustment_in`, `adjustment_out`, `return_in`), `reference_type`, `reference_id`, `actor_user_id`
 
 ### Orders
-- **orders** — `order_number` (e.g. `ORD-2026-0001`, yearly sequence), `branch_id`, `created_by_user_id`, `status` enum (`draft`, `submitted`, `branch_approved`, `approved`, `rejected`, `picking`, `packed`, `shipped`, `delivered`, `closed`, `cancelled`), `submitted_at`, `branch_approved_at`, `branch_approved_by_user_id` (step 1, 3.2.2), `approved_at`, `approved_by_user_id` (step 2 — final HQ approval), `rejection_reason`, `total_net_cents`, `total_vat_cents`, `total_gross_cents`, `notes`. Pre-3.2.2 single-step rows have `branch_approved_*` backfilled to 4 hours before their `approved_*` (see migration `20260418000006`).
+- **orders** — `order_number` (e.g. `ORD-2026-0001`, yearly sequence), `branch_id`, `created_by_user_id`, `status` enum (`draft`, `submitted`, `branch_approved`, `approved`, `rejected`, `picking`, `packed`, `shipped`, `delivered`, `closed`, `cancelled`), `submitted_at`, `branch_approved_at`, `branch_approved_by_user_id` (step 1, 3.2.2), `approved_at`, `approved_by_user_id` (step 2 — final HQ approval), `rejection_reason`, `total_net_cents`, `total_vat_cents`, `total_gross_cents`, `notes`. Pre-3.2.2 single-step rows have `branch_approved_*` backfilled to 4 hours before their `approved_*` (see migration `20260418000006`). **Phase 3.4** adds `edit_count int NOT NULL DEFAULT 0`, `last_edited_at timestamptz NULL`, `last_edited_by_user_id uuid NULL` (FK `users`).
 - **order_items** — `order_id`, `product_id`, `quantity_requested`, `quantity_approved`, `quantity_packed`, `quantity_shipped`, `unit_price_cents_snapshot`, `vat_rate_snapshot`, `line_net_cents`
+- **order_edit_history** *(Phase 3.4)* — append-only audit of pre-approval edits: `id`, `order_id` (FK), `edited_at`, `edited_by_user_id` (FK), `edit_reason text NULL` (optional, plumbed for future use), `before_snapshot jsonb` (full `order_items` state before the edit), `after_snapshot jsonb` (full state after). Used by the `<OrderEditHistory>` diff viewer; retention policy revisited in Phase 7 alongside GDPR data-retention.
 
 ### Fulfillment
 - **pallets** — `pallet_number` (e.g. `PAL-2026-00042`, yearly sequence), `order_id`, `packed_by_user_id`, `packed_at`, `status` enum (`open`, `packed`, `shipped`, `delivered`), `weight_kg` (nullable), `notes`
@@ -312,6 +315,49 @@ Manual cancellation by creator (own draft), Branch Manager (own branch, pre-ship
 
 **Working-days helper:** `src/lib/dates/working-days.ts` exposes `addWorkingDays(date, n, opts?)` and `isWorkingDay(date, opts?)`. The `holidays?: Date[]` option is plumbed through but unused until Phase 7. The same helper is reused in Phase 5 for invoice `due_at`.
 
+### 8.9 Order edit (Phase 3.4)
+
+A submitted order is mutable until the Branch Manager moves it to `branch_approved`. Once branch-approved, the order is frozen for the remainder of its lifecycle — any change after that requires reject → resubmit through the normal flow.
+
+**Edit window:** `status = 'submitted'` only. The Edit button is hidden in the UI for any other status, and the Server Action (status-guarded UPDATE per the existing pattern) refuses to touch the row.
+
+**Who can edit:** order creator (the branch user who submitted), branch manager of the order's branch, Administration, Super Admin. HQ Manager **cannot** edit; the existing approve / reject controls remain HQ's only mutation surface.
+
+**Editable fields:**
+- Per-line quantity, including 0 (which removes the line).
+- Add new product lines from the catalog (respects `min_order_qty`, `max_order_qty`, `active`).
+- Remove entire lines.
+- Order `notes` field.
+
+**UX flow:**
+1. `/orders/[id]` shows an Edit button next to Cancel / Reject / Approve when the caller has rights *and* the status is `submitted`.
+2. Click Edit → navigate to `/orders/[id]/edit`. The page mirrors `/cart`: per-line qty inputs, remove buttons, an "Add product" button that opens a catalog search drawer. Line totals recalculate optimistically as the user types (same pattern as `/cart`).
+3. Bottom action bar: "Save changes" (primary) and "Cancel (discard)" (secondary).
+4. Click Save → confirmation modal: *"Save changes? Your branch manager will need to approve this order again after you save."* Choices: "Save and resubmit" / "Cancel".
+5. On confirm: Server Action commits, the order detail re-renders with a success toast, and the BM gets the `order_edited` notification.
+
+**Side effects of saving an edit:**
+- Status stays `submitted` (no enum change), but `submitted_at` is updated to NOW so the §8.8 step-1 auto-cancel timer restarts.
+- `orders.edit_count`++; `orders.last_edited_at` and `orders.last_edited_by_user_id` set.
+- A row is appended to `order_edit_history` with full `before_snapshot` and `after_snapshot` JSON of `order_items`.
+- `audit_log` gets a new row with action `order_edited` and a payload summary (line-count delta, total delta).
+- `notifications` row + console-mode email (`order_edited`) goes to every branch manager of the order's branch — subject: *"Order [number] was edited and needs re-approval"*.
+
+**Edit history viewer:**
+- New `<OrderEditHistory order_id={...} />` component renders below the activity timeline on `/orders/[id]`. Visible to BM, HQ, and admin scopes.
+- Header: *"Edit history (N edits)"* — only rendered when `edit_count > 0`.
+- Each edit shows actor + timestamp + a two-column diff (Before | After). Removed lines: red strikethrough. Added lines: green. Quantity changes: `old → new`.
+- The activity timeline gains a new entry per edit with a one-line summary; clicking expands the full diff inline.
+
+**RLS:**
+- `orders` UPDATE for the edit path is gated by `status = 'submitted' AND (creator OR branch_manager_of_branch OR admin)`. Wrong status or wrong actor is rejected at the Postgres layer in addition to the action layer.
+- `order_edit_history` SELECT mirrors the audit-log pattern: own-branch visibility for branch users / managers; cross-branch for HQ / admin / super.
+
+**Out of scope for 3.4:**
+- Editing during `branch_approved`. (Decision: post-step-1 changes go through reject → resubmit.)
+- Per-edit approval. Edits take effect immediately; the BM re-approves the whole updated order, not the edit itself.
+- Edit-history retention policy. Keep all edits forever for now; revisit in Phase 7 alongside GDPR data-retention.
+
 ## 9. Screens / Navigation
 
 ### Branch portal (`/branch/...`)
@@ -362,7 +408,56 @@ Next.js + Supabase scaffolding, auth (email/password + magic link), `users` / `b
 `products`, `product_categories`, `product_barcodes`, `inventory`, `inventory_movements`. Admin catalog CRUD + CSV import. Branch catalog browse with search + category filter + in-stock toggle.
 
 ### Phase 3 — Ordering & approval
-Cart, order submit, outstanding-invoice check, approval queue, status transitions, inventory reservations, Resend email hooks.
+Cart, order submit, outstanding-invoice check, two-step approval queue (Branch Manager → HQ Manager, SPEC §8.2), status transitions, inventory reservations, auto-cancel cron (§8.8), Resend email hooks.
+
+Phase 3 ships across these accepted sub-milestones (each one PR):
+- 3.1 — Cart + order submit
+- 3.2 — Approval queue + inventory reservations (single-step, superseded by 3.2.2)
+- 3.2.1 — Transparency + traceability polish (status pill, activity timeline, role-aware approver visibility)
+- 3.2.2a — HQ Manager role + two-step approval schema
+- 3.2.2b — Two-step approval UI + HQ queue with tabs
+- 3.2.2c — Auto-cancel cron + working-days helper
+- 3.3.1 — Resend integration (console-only this milestone) + transactional triggers
+- 3.3.2 — In-app notification centre (bell + badge + dropdown, polled)
+- 3.3.3 — Email preferences + polished templates + unsubscribe + legal footer
+
+### Phase 3.4 — Order edit (accepted 2026-04-19)
+Editable orders **before** branch approval. Once `branch_approved`, the order is frozen for the rest of its lifecycle. See §8.9 for the full edit workflow + §6 for the new columns and `order_edit_history` table.
+
+Edit window:
+- Editable when `status = 'submitted'` only.
+- Once status reaches `branch_approved`, the edit button is hidden and Server Actions reject direct POSTs (status-guarded UPDATE).
+
+Permissions:
+- Order creator (the branch user who submitted it).
+- Branch manager of the order's branch.
+- Administration / Super Admin (power-user override).
+- HQ Manager **cannot** edit (they only approve / reject at step 2).
+
+What the edit can change:
+- Per-line quantity (zero = remove the line).
+- Add new product lines from the catalog.
+- Remove entire lines.
+- Order `notes` field.
+- Respects existing `min_order_qty` / `max_order_qty` / `active` rules.
+
+Side-effects of saving an edit:
+- `submitted_at` is updated to NOW (resets the §8.8 step-1 auto-cancel timer).
+- `orders.edit_count`++; `orders.last_edited_at` and `orders.last_edited_by_user_id` set.
+- A new `order_edit_history` row stores `before_snapshot` + `after_snapshot` JSON of the affected lines.
+- New `audit_log` row with action `order_edited` and a payload summary (line count delta, total delta).
+- Email trigger `order_edited` → branch managers ("Order N was edited and needs re-approval").
+
+Edit history viewer:
+- New collapsible `<OrderEditHistory>` section on `/orders/[id]`, below the activity timeline.
+- Header: "Edit history (N edits)" — only rendered when `edit_count > 0`.
+- Two-column diff (Before | After). Removed lines: red strikethrough. Added lines: green. Quantity changes: `old → new`.
+- Activity timeline gets a new entry type per edit with a one-line summary; click expands the full diff.
+
+Out of scope (3.4):
+- Editing during `branch_approved`. (Decision: any post-step-1 change requires reject → resubmit.)
+- Per-edit approval. Edits take effect immediately; the BM re-approves the whole updated order, not the edit itself.
+- Edit-history retention policy. Keep all edits forever for now; revisit in Phase 7 alongside GDPR data-retention.
 
 ### Phase 4 — Picking & packing
 Packer tablet UI, scan input, pallet creation, pallet-label PDF, pick-list PDF, packing-slip PDF.
@@ -374,7 +469,7 @@ Auto-draft invoice on ship, PDF generation, issue + send, admin invoice queue, m
 Mollie iDEAL integration + webhook, returns workflow, credit notes.
 
 ### Phase 7 — Polish
-Reports, low-stock alerts, audit-log viewer, accessibility audit, full Playwright coverage of happy paths, English copy review, documentation in `/docs`.
+Reports, low-stock alerts, audit-log viewer, accessibility audit, full Playwright coverage of happy paths, English copy review, documentation in `/docs`. Also picks up the cross-cutting backlog items recorded in `docs/BACKLOG.md` (sortable column headers, role-specific dashboards, NL holidays config, DST-aware cron, archive/restore UX).
 
 ## 12. Acceptance Criteria (per phase)
 

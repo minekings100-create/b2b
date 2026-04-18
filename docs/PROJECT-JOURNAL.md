@@ -5,13 +5,34 @@ The single source of truth for **where we are right now**. Updated every time a 
 ## Current status
 
 - **Project:** internal B2B procurement platform (SPEC §1).
-- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.2.2b** (two-step approval UI + HQ queue with tabs, this PR).
-- **Last merged PR on `main`:** #17 cart-submit fix (post-3.2.2a flake repair).
+- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.3.1** (Resend email infra, rebased on 3.2.2c — `phase-3-3-1-email-infra` HEAD `d531186`, awaiting review).
+- **Last merged PR on `main`:** #19 Phase 3.2.2c (auto-cancel cron + working-days helper).
 - **Open / paused branches:**
-  - `phase-3-3-1-email-infra` (commit `722e2e5`) — built and verified, **paused** pending 3.2.2 landing. Rebase + recipient changes after 3.2.2c merges.
-  - `phase-3-2-2b-flow` — this PR.
-- **Phase 2 complete:** all sub-phases (2.1–2.5) merged. See Phase 2 roadmap below.
+  - `phase-3-3-1-email-infra` (commit `d531186`) — rebased on `main`, ready for review.
+- **Phase 2 complete:** all sub-phases (2.1–2.5) merged.
+- **Phase 3.2.2 complete:** 3.2.2a + 3.2.2b + 3.2.2c all merged (PRs #16, #18, #19) — two-step approval is live with auto-cancel.
 - **Proposed Phase 2.6** (Inbound goods & replenishment) stays on [`BACKLOG.md`](./BACKLOG.md); explicitly deferred on 2026-04-18 — may slot in after Phase 3.
+
+### Roadmap (post-Phase-3.4 acceptance, 2026-04-19)
+
+Phase 3 splits into 3.1 / 3.2 / 3.2.1 / 3.2.2{a,b,c} / 3.3.{1,2,3} (already shipped or in flight). **Phase 3.4 — Order edit** is newly accepted and slots in after Phase 3.3.3:
+
+| Phase | Title | Status |
+|---|---|---|
+| 3.1 | Cart + order submit | ✅ merged |
+| 3.2 | Approval queue + reservations (single-step, superseded) | ✅ merged |
+| 3.2.1 | Transparency + traceability polish | ✅ merged |
+| 3.2.2a | HQ Manager role + two-step schema | ✅ merged |
+| 3.2.2b | Two-step approval UI + HQ queue tabs | ✅ merged |
+| 3.2.2c | Auto-cancel cron + working-days helper | ✅ merged |
+| 3.3.1 | Resend integration + transactional triggers | 🟡 PR open (rebased) |
+| 3.3.2 | In-app notification centre (bell + dropdown) | ⚪ planned |
+| 3.3.3 | Email preferences + polished templates + unsubscribe + legal | ⚪ planned |
+| **3.4** | **Order edit (pre-approval)** | ⚪ **planned (NEW, accepted 2026-04-19)** |
+| 4 | Picking & packing (was next after 3.3) | ⚪ planned |
+| 5 | Invoicing | ⚪ planned |
+| 6 | Online payment & RMA | ⚪ planned |
+| 7 | Polish (incl. sortable headers, NL holidays, DST cron, archive/restore) | ⚪ planned |
 
 ## Numbering canon
 
@@ -213,6 +234,43 @@ When 3.2.2c (the auto-cancel cron) ships:
 ### 3.3.1 holding pattern
 
 `phase-3-3-1-email-infra` (commit `722e2e5`) is paused. After 3.2.2c merges, rebase onto `main`, then update the recipient resolvers and add the new triggers (full list in the "Out of scope (deferred…)" subsection above).
+
+**Update 2026-04-19:** rebase complete. New HEAD `d531186`, sitting on top of `b1898df` (3.2.2c on main). Step-tagged triggers wired (see SPEC §11 Phase 3 sub-list); full Playwright 186 / 6 skipped. PR awaiting review.
+
+## Phase 3.4 plan — Order edit *(accepted 2026-04-19, no code yet)*
+
+Pure documentation per the user's brief — implementation queued **after 3.3.1 → 3.3.2 → 3.3.3**.
+
+### Scope
+
+Edit a `submitted` order before it crosses into `branch_approved`. Once branch-approved, the order is frozen for the rest of its lifecycle. Per-edit details + workflow live in SPEC §8.9; data model additions in SPEC §6 (orders columns + new `order_edit_history` table); role rights in SPEC §5.
+
+### Implementation order (when picked up)
+
+| Step | What | Why |
+|---|---|---|
+| 1 | Migration: `orders.edit_count`, `last_edited_at`, `last_edited_by_user_id` + new `order_edit_history` table with RLS (own-branch read for branch users / managers; cross-branch for HQ / admin / super) | Schema first, behaviour after — same pattern as 3.2.2a |
+| 2 | Server Action `editOrder` — status-guarded (`submitted` only), role-checked, computes diff, writes `order_items` updates + `order_edit_history` row + `audit_log` `order_edited` row, resets `submitted_at` | Bulk of the change |
+| 3 | New route `/orders/[id]/edit` — mirrors `/cart` (qty inputs, remove buttons, "Add product" drawer) | UI |
+| 4 | Edit button on `/orders/[id]` — visible iff `status='submitted' AND (creator OR BM-of-branch OR admin)` | Entry point |
+| 5 | `<OrderEditHistory>` collapsible component below `<ActivityTimeline>` on `/orders/[id]` | Diff viewer |
+| 6 | `ActivityTimeline.describeAction` learns `order_edited` (one-line summary; click expands the diff via the new component) | Timeline integration |
+| 7 | Email trigger `order_edited` → branch managers; template includes line-count delta + total delta | Re-approval signal |
+| 8 | Tests (vitest RLS + Playwright e2e covering creator-only edits, BM cross-edits, HQ blocked, status guard rejects branch_approved, audit + history rows persisted, email fired) | Acceptance |
+
+### Risks I'm flagging early (revisit at implementation)
+
+1. **Diff snapshot size.** Storing full `order_items` JSON in `before_snapshot` + `after_snapshot` is fine for ~50-line orders; if a future bulk-import order has 500 lines the row gets large. Acceptable for v1; revisit if Postgres complains.
+2. **Reservation handling on edit.** Edits happen *before* `branch_approved`, which is when reservations land. So edits never need to release / re-reserve inventory. Confirmed safe by design.
+3. **Concurrent edit race.** Two users editing simultaneously could clobber each other. Add an `if-match`-style version check (`UPDATE … WHERE updated_at = $expected`) in `editOrder` to detect the race and return a friendly "this order changed under you, refresh" error.
+4. **Edit during the BM's approval review.** If a BM is on the approval form when the user saves an edit, the BM submits stale `quantity_approved` values. The status-guarded UPDATE in `branchApproveOrder` already returns "0 rows affected" if status changed — extend the same pattern to also trip when `last_edited_at` advanced past what the form was rendered with. Surface as "the order was just edited; please review again".
+5. **Email storm.** Repeated edits would trigger repeated `order_edited` emails. Defer for v1; debounce in 3.3.3-style preferences if it becomes annoying.
+
+### Open questions for the user before 3.4 starts
+
+1. Should the BM's approve form auto-refresh when the underlying order is edited mid-review, or just refuse the submit with a "refresh" error? (My instinct: refuse + force-refresh, matches the existing concurrency pattern.)
+2. Should `editOrder` accept zero-line orders (i.e. user removes every line)? Or treat removing the last line as an implicit cancel? (Lean: refuse, force the user to use the explicit Cancel action — clearer audit trail.)
+3. `edit_reason` column on `order_edit_history` is plumbed but unused. Add a UI "Why are you editing? (optional)" field on the edit page now, or leave for Phase 7? (Lean: leave — extra friction without proven need.)
 
 ## How this file is maintained
 

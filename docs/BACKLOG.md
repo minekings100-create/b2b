@@ -117,6 +117,19 @@ _Captured: 2026-04-18 (from 3.2.2 plan)._
 
 `src/lib/dates/working-days.ts` (3.2.2c) ships with a `holidays?: Date[]` option already plumbed through but no holiday data wired in. Phase 7 adds: (a) a small admin UI to manage NL public holidays (or import a static list — Koningsdag, Bevrijdingsdag, the standard set), (b) a server helper that loads the active list and passes it to every `addWorkingDays` / `isWorkingDay` call site (auto-cancel cron, invoice `due_at`).
 
+### Sortable column headers on order tables
+_Captured: 2026-04-19._
+
+`/orders` and `/approvals` tables have static column headers — no way to re-sort by total / branch / lines / status / approval timestamp. Users currently rely on the default `submitted_at desc` sort.
+
+**Behaviour when picked up:**
+- Click a sortable header → sort `asc`. Click again → `desc`. Third click → reset to default (`submitted_at desc`).
+- Visible sort indicator next to the header (arrow up / down / double).
+- Persist the sort in the URL as `?sort=<col>&dir=asc|desc` so the back button + bookmarks work.
+- Columns to support: `number`, `submitted_at`, `branch`, `total_gross_cents`, `item_count`, `status`, `approved_at`, `branch_approved_at`. Default fallback (no `sort` param) stays `submitted_at desc`.
+- Server Component path: parse the param with Zod at the trust boundary (same pattern as the `?status=` filter chips), pass into `fetchVisibleOrders` / `fetchApprovalQueue`.
+- Each list query keeps its hard `limit(200)` regardless of sort — pagination is a separate Phase 7 entry.
+
 ## Cross-cutting
 
 ### Archive / Restore UX pattern
