@@ -5,12 +5,13 @@ The single source of truth for **where we are right now**. Updated every time a 
 ## Current status
 
 - **Project:** internal B2B procurement platform (SPEC §1).
-- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.3.1** (Resend email infra, rebased on 3.2.2c — `phase-3-3-1-email-infra` HEAD `d531186`, awaiting review).
-- **Last merged PR on `main`:** #19 Phase 3.2.2c (auto-cancel cron + working-days helper).
+- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.3.2** (in-app notification bell, this PR).
+- **Last merged PRs on `main`:** #20 Phase 3.3.1 (rebased email infra), #21 Phase 3.4 docs.
 - **Open / paused branches:**
-  - `phase-3-3-1-email-infra` (commit `d531186`) — rebased on `main`, ready for review.
+  - `phase-3-3-2-notifications-bell` — this PR.
 - **Phase 2 complete:** all sub-phases (2.1–2.5) merged.
-- **Phase 3.2.2 complete:** 3.2.2a + 3.2.2b + 3.2.2c all merged (PRs #16, #18, #19) — two-step approval is live with auto-cancel.
+- **Phase 3.2.2 complete:** 3.2.2a + 3.2.2b + 3.2.2c merged (PRs #16, #18, #19) — two-step approval live with auto-cancel.
+- **Phase 3.3.1 complete:** PR #20 — email infra in console-only mode; bell consumes the same `notifications` rows.
 - **Proposed Phase 2.6** (Inbound goods & replenishment) stays on [`BACKLOG.md`](./BACKLOG.md); explicitly deferred on 2026-04-18 — may slot in after Phase 3.
 
 ### Roadmap (post-Phase-3.4 acceptance, 2026-04-19)
@@ -25,8 +26,8 @@ Phase 3 splits into 3.1 / 3.2 / 3.2.1 / 3.2.2{a,b,c} / 3.3.{1,2,3} (already ship
 | 3.2.2a | HQ Manager role + two-step schema | ✅ merged |
 | 3.2.2b | Two-step approval UI + HQ queue tabs | ✅ merged |
 | 3.2.2c | Auto-cancel cron + working-days helper | ✅ merged |
-| 3.3.1 | Resend integration + transactional triggers | 🟡 PR open (rebased) |
-| 3.3.2 | In-app notification centre (bell + dropdown) | ⚪ planned |
+| 3.3.1 | Resend integration + transactional triggers | ✅ merged (PR #20) |
+| 3.3.2 | In-app notification centre (bell + dropdown) | 🟡 PR open (this branch) |
 | 3.3.3 | Email preferences + polished templates + unsubscribe + legal | ⚪ planned |
 | **3.4** | **Order edit (pre-approval)** | ⚪ **planned (NEW, accepted 2026-04-19)** |
 | 4 | Picking & packing (was next after 3.3) | ⚪ planned |
