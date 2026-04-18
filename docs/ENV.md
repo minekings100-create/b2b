@@ -41,6 +41,13 @@ Every env var used in this project is documented here (SPEC §13 step 10).
 - **Alternative:** Run `supabase login` interactively once; the CLI stores a session token locally. This env var is only needed in non-interactive environments (CI, this project's scripts).
 - **Exposed to browser:** No.
 
+### `CRON_SECRET`
+- **Purpose:** Shared secret that gates the cron route handlers (`/api/cron/*`). Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}` automatically when the secret is configured on the project.
+- **Default if unset:** Cron routes are callable without auth — fine for local dev and e2e tests; **must be set in production** so external callers cannot trigger auto-cancellations.
+- **Where to find / generate:** Any high-entropy random string (e.g. `openssl rand -hex 32`). Store in Vercel env, mark as Sensitive.
+- **Used by:** `/api/cron/auto-cancel-stale-orders` (3.2.2c). Future cron routes (3.3.x reminders, Phase 5 overdue invoices) reuse the same secret.
+- **Exposed to browser:** No.
+
 ### `SUPABASE_DB_PASSWORD`
 - **Purpose:** Direct database password for connecting Postgres over SSL (used by `supabase db push` when run non-interactively, or by `psql`).
 - **Where to find:** Supabase dashboard → Project Settings → Database → Database Password (reveal or reset).
