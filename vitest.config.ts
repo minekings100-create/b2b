@@ -18,6 +18,13 @@ export default defineConfig({
     poolOptions: { threads: { singleThread: true } },
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // Vitest runs in plain Node without Next's React Server Components
+      // condition, so the `import "server-only"` marker would throw on any
+      // module loaded by a unit test. Alias to an empty stub so pure-server
+      // utilities (templates, transport) stay testable.
+      "server-only": path.resolve(__dirname, "tests/_stubs/server-only.ts"),
+    },
   },
 });

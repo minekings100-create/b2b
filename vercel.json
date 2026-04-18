@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/auto-cancel-stale-orders",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/awaiting-approval",
+      "schedule": "15 0 * * *"
     }
   ]
 }

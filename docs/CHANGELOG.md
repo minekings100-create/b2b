@@ -1,5 +1,39 @@
 # Changelog
 
+## [Phase 3.3.1] — 2026-04-18  *(rebased onto 3.2.2c)*
+
+Originally built before 3.2.2; rebased on top of the two-step approval
+flow. Ships in **console-only mode** — no Resend SDK is installed and
+no `RESEND_API_KEY` is required. Every transport call logs
+`[email:console] type=… to=… subject=…` followed by the plain-text
+body. Notifications rows still get written so the 3.3.2 bell has data.
+
+### Added (post-rebase)
+- **Email infrastructure (`src/lib/email/`)** — adapter-pattern transport (SPEC §2: SendGrid swap stays a one-file change), recipient resolvers (`managersForBranch`, `hqManagers`, `packerPool`, `adminAudience`, `userById`), template render functions, and a `notify()` helper that writes a `notifications` row per recipient via the service-role client and fires the transport per message.
+- **Lifecycle triggers — step-tagged for 3.2.2's two-step flow:**
+  - `order_submitted` → branch managers (cart submit)
+  - `order_submitted_while_overdue` → admin pool (override path, SPEC §8.1.4)
+  - `order_branch_approved` → HQ Managers (BM completed step 1, HQ takes over)
+  - `order_approved` → packer pool (HQ completed step 2 — order ready to pick)
+  - `order_branch_rejected` → creator (BM rejected at step 1)
+  - `order_hq_rejected` → creator AND `order_hq_rejected_to_branch_manager` → BM who approved step 1 (with "you were overruled" framing)
+  - `order_cancelled` → branch managers (manual cancel, any pre-shipped state)
+  - `order_auto_cancelled` → fanout per timeout step (creator + BMs always; HQ + admins on step-2 timeout per SPEC §8.8)
+  - `submitted_awaiting_branch_reminder` → branch managers (nightly digest of orders waiting > 24h)
+  - `branch_approved_awaiting_hq_reminder` → HQ Managers (nightly digest of orders waiting > 24h cross-branch)
+- **Cron route `/api/cron/awaiting-approval`** — single nightly tick now emits BOTH digests (step-1 to BMs grouped by branch, step-2 to HQ Managers cross-branch). Schedule `15 0 * * *` UTC = 02:15 Europe/Amsterdam standard time / 03:15 CEST.
+- **Cron route `/api/cron/auto-cancel-stale-orders`** (3.2.2c) gains the `order_auto_cancelled` notification side-effect — emits in the same status-guarded UPDATE pass.
+- Vitest: 4 new template render cases (`renderOrderBranchApproved`, `renderOrderHqRejectedToBranchManager`, `renderOrderAutoCancelled` × both steps, `renderAwaitingHqApprovalReminder`).
+- Playwright (`tests-e2e/notifications-3-3-1.spec.ts`) rewritten for the new model: BM-approve → `order_branch_approved` to HQ; HQ-approve → `order_approved` to packers; BM-reject → `order_branch_rejected`; HQ-reject fans out to creator + BM-who-approved; manual cancel → managers; both digest types; both auto-cancel timeouts.
+
+### Changed (during rebase)
+- `src/lib/actions/cart.ts` and `src/lib/actions/approval.ts` notify after the audit_log insert. All side effects are wrapped in try/catch — a notifications outage cannot roll back the underlying state change.
+- `vitest.config.ts` aliases `server-only` to a no-op stub so pure-server utilities (templates, transport) stay unit-testable from Node-mode vitest.
+- `vercel.json` carries both crons (`auto-cancel-stale-orders` from 3.2.2c + `awaiting-approval` here).
+
+### Mode
+- **Console-only this milestone.** Switching on real Resend later is documented in `docs/ENV.md` under `RESEND_API_KEY` — install the package, replace the `consoleTransport` factory with the Resend client, set the env vars, and verify a sender domain.
+
 ## [Phase 3.2.2c] — 2026-04-18
 
 ### Deploy warning (READ BEFORE MERGING TO PROD)

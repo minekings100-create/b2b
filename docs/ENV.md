@@ -41,11 +41,33 @@ Every env var used in this project is documented here (SPEC §13 step 10).
 - **Alternative:** Run `supabase login` interactively once; the CLI stores a session token locally. This env var is only needed in non-interactive environments (CI, this project's scripts).
 - **Exposed to browser:** No.
 
+### `RESEND_API_KEY` *(deferred — not required to run anything in 3.3.x)*
+- **Purpose:** Authenticates outbound email through Resend. **Sub-milestone 3.3.1 ships in console-only mode** — every notification trigger writes its `notifications` table row and logs the rendered subject + plain-text body to the server console, but no HTTP call is made to Resend. Setting this var today is a no-op.
+- **When to enable:** Pre-launch, or whenever a demo needs real emails. Switching on requires (a) `npm install resend`, (b) replacing the `consoleTransport` factory in `src/lib/email/transport.ts` with a Resend-backed implementation, and (c) verifying a sender domain on Resend (see `RESEND_FROM_EMAIL` below).
+- **Where to find:** <https://resend.com/api-keys> (after the project is created). Issue a `dev`-scoped key for staging and a separate one for prod.
+- **Exposed to browser:** No.
+
+### `RESEND_FROM_EMAIL`
+- **Purpose:** `From:` header used for outbound transactional email. Format `Display Name <addr@domain>`.
+- **Default if unset:** `Procurement (dev) <onboarding@resend.dev>` — the Resend sandbox sender. Works for dev only; deliverability is best-effort and the address must not be used in production.
+- **Prod requirement:** A verified sender on a domain Bessems Marketing Service controls (e.g. `noreply@bessemsmarketingservice.nl`). Domain verification is done in the Resend dashboard via DNS records (SPF, DKIM); allow ~10 min for propagation.
+- **Exposed to browser:** No.
+
+### `RESEND_REPLY_TO`
+- **Purpose:** Optional `Reply-To:` header. Useful when `RESEND_FROM_EMAIL` is a no-reply address but you want replies to land on a monitored inbox.
+- **Default if unset:** No `Reply-To:` header — replies go to the `From:` address.
+- **Exposed to browser:** No.
+
+### `APP_BASE_URL`
+- **Purpose:** Base URL the email templates use to build CTA links (e.g. `https://procurement.bessems.nl/orders/<id>`).
+- **Default if unset:** `http://localhost:3000` — fine for dev. **Prod must override** or recipients will get clickable localhost links.
+- **Exposed to browser:** No (used in server-rendered email HTML only).
+
 ### `CRON_SECRET`
 - **Purpose:** Shared secret that gates the cron route handlers (`/api/cron/*`). Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}` automatically when the secret is configured on the project.
-- **Default if unset:** Cron routes are callable without auth — fine for local dev and e2e tests; **must be set in production** so external callers cannot trigger auto-cancellations.
+- **Default if unset:** Cron routes are callable without auth — fine for local dev and e2e tests; **must be set in production** so external callers cannot trigger digest emails or auto-cancellations.
 - **Where to find / generate:** Any high-entropy random string (e.g. `openssl rand -hex 32`). Store in Vercel env, mark as Sensitive.
-- **Used by:** `/api/cron/auto-cancel-stale-orders` (3.2.2c). Future cron routes (3.3.x reminders, Phase 5 overdue invoices) reuse the same secret.
+- **Used by:** `/api/cron/auto-cancel-stale-orders` (3.2.2c) and `/api/cron/awaiting-approval` (3.3.1). Future cron routes (Phase 5 overdue invoices) reuse the same secret.
 - **Exposed to browser:** No.
 
 ### `SUPABASE_DB_PASSWORD`
