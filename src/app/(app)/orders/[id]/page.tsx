@@ -13,10 +13,11 @@ import {
 import { OrderStatusPill } from "@/components/app/order-status-pill";
 import { ActivityTimeline } from "@/components/app/activity-timeline";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isHqManager } from "@/lib/auth/roles";
 import { fetchOrderDetail } from "@/lib/db/order-detail";
 import { formatCents } from "@/lib/money";
 import { ApproveForm } from "./_components/approve-form";
+import { HqApproveForm } from "./_components/hq-approve-form";
 import { RejectForm } from "./_components/reject-form";
 import { CancelForm } from "./_components/cancel-form";
 
@@ -47,15 +48,31 @@ export default async function OrderDetailPage({
   if (!order) notFound();
 
   const admin = isAdmin(session.roles);
+  const hq = isHqManager(session.roles);
   const isMyBranchManager = session.roles.some(
     (r) => r.role === "branch_manager" && r.branch_id === order.branch_id,
   );
-  const canDecide = (admin || isMyBranchManager) && order.status === "submitted";
+  // Step-1 (BM) decision lives only when the order is `submitted` and the
+  // caller is BM-of-branch or admin. HQ explicitly cannot substitute here
+  // (SPEC §8.2 non-substitution rule).
+  const canBranchDecide =
+    (admin || isMyBranchManager) && order.status === "submitted";
+  // Step-2 (HQ) decision lives only when the order is `branch_approved`
+  // and the caller is HQ Manager or admin.
+  const canHqDecide =
+    (admin || hq) && order.status === "branch_approved";
   const canCancel =
     admin ||
+    hq ||
     isMyBranchManager ||
     (order.created_by_user_id === session.user.id && order.status === "draft");
-  const cancelEligibleStatuses = ["draft", "submitted", "approved", "picking"];
+  const cancelEligibleStatuses = [
+    "draft",
+    "submitted",
+    "branch_approved",
+    "approved",
+    "picking",
+  ];
   const showCancel = canCancel && cancelEligibleStatuses.includes(order.status);
 
   return (
@@ -84,20 +101,26 @@ export default async function OrderDetailPage({
             (SPEC §4 status tokens). */}
         <section
           aria-label="Order status"
-          className="flex flex-wrap items-center gap-3"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5"
         >
           <OrderStatusPill status={order.status} size="lg" />
+          {order.branch_approved_by_email ? (
+            <span className="text-sm text-fg-muted">
+              <span>Branch-approved by</span>{" "}
+              <span className="text-fg">{order.branch_approved_by_email}</span>
+              {order.branch_approved_at ? (
+                <span> · {formatDate(order.branch_approved_at)}</span>
+              ) : null}
+            </span>
+          ) : null}
           {order.approved_by_email ? (
             <span className="text-sm text-fg-muted">
-              <span className="text-fg-muted">
-                {order.status === "rejected" ? "Decided" : "Approved"} by
+              <span>
+                {order.status === "rejected" ? "Decided" : "HQ-approved"} by
               </span>{" "}
               <span className="text-fg">{order.approved_by_email}</span>
               {order.approved_at ? (
-                <span className="text-fg-muted">
-                  {" "}
-                  · {formatDate(order.approved_at)}
-                </span>
+                <span> · {formatDate(order.approved_at)}</span>
               ) : null}
             </span>
           ) : null}
@@ -120,23 +143,40 @@ export default async function OrderDetailPage({
           </section>
         ) : null}
 
-        <section className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+        <section className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-5">
           <Meta label="Created" value={formatDate(order.created_at)} />
           <Meta label="Submitted" value={formatDate(order.submitted_at)} />
           <Meta
-            label={order.status === "rejected" ? "Decided" : "Approved"}
+            label="Branch-approved"
+            value={formatDate(order.branch_approved_at)}
+          />
+          <Meta
+            label={order.status === "rejected" ? "Decided" : "HQ-approved"}
             value={formatDate(order.approved_at)}
           />
           <Meta label="Total" value={formatCents(order.total_gross_cents)} mono />
         </section>
 
-        {canDecide ? (
+        {canBranchDecide ? (
           <>
             <section className="space-y-3">
               <h2 className="text-base font-semibold tracking-tight">
-                Review
+                Branch review (step 1)
               </h2>
               <ApproveForm orderId={order.id} items={order.items} />
+            </section>
+            <div className="flex flex-wrap items-center gap-2">
+              <RejectForm orderId={order.id} />
+              {showCancel ? <CancelForm orderId={order.id} /> : null}
+            </div>
+          </>
+        ) : canHqDecide ? (
+          <>
+            <section className="space-y-3">
+              <h2 className="text-base font-semibold tracking-tight">
+                HQ review (step 2)
+              </h2>
+              <HqApproveForm orderId={order.id} items={order.items} />
             </section>
             <div className="flex flex-wrap items-center gap-2">
               <RejectForm orderId={order.id} />

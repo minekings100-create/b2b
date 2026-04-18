@@ -16,14 +16,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/money";
-import { approveOrderFormAction } from "@/lib/actions/approval";
+import { branchApproveOrderFormAction } from "@/lib/actions/approval";
 import type { OrderDetailLine } from "@/lib/db/order-detail";
 
 /**
- * Adjust-and-approve UI per SPEC §8.2 step 2. Each line shows requested /
- * approved (editable) / available (on_hand − reserved) + a backorder pill
- * if the local approved qty exceeds available. Approval is always allowed —
- * the banner just warns the manager.
+ * Step-1 (Branch Manager) approve UI — SPEC §8.2. Each line shows
+ * requested / approved (editable) / available (on_hand − reserved) + a
+ * backorder pill if the local approved qty exceeds available. Approval is
+ * always allowed — the banner just warns the manager. On submit the order
+ * flips to `branch_approved`; HQ then handles step 2 via HqApproveForm.
  */
 export function ApproveForm({
   orderId,
@@ -47,7 +48,7 @@ export function ApproveForm({
   });
 
   return (
-    <form action={approveOrderFormAction} className="space-y-4">
+    <form action={branchApproveOrderFormAction} className="space-y-4">
       <input type="hidden" name="order_id" value={orderId} />
 
       <div className="overflow-hidden rounded-lg ring-1 ring-border">
@@ -146,7 +147,7 @@ function ApproveBtn() {
   return (
     <Button type="submit" loading={pending}>
       <Check className="h-3.5 w-3.5" />
-      Approve order
+      Branch-approve order
     </Button>
   );
 }

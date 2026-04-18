@@ -23,7 +23,12 @@ import {
   SidebarSection,
 } from "@/components/ui/sidebar";
 import type { RoleAssignment } from "@/lib/auth/roles";
-import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
+import {
+  hasAnyRole,
+  isAdmin,
+  isHqManager,
+  viewsOrdersCrossBranch,
+} from "@/lib/auth/roles";
 import { UserMenu } from "./user-menu";
 
 export function AppSidebar({
@@ -35,9 +40,16 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   const canOrder = hasAnyRole(roles, ["branch_user", "branch_manager"]);
-  const canApprove = hasAnyRole(roles, ["branch_manager"]);
+  // BM owns step 1; HQ owns step 2; admins see all approvals.
+  const canApprove =
+    hasAnyRole(roles, ["branch_manager"]) ||
+    isHqManager(roles) ||
+    isAdmin(roles);
   const canPack = hasAnyRole(roles, ["packer"]);
   const admin = isAdmin(roles);
+  const ordersLabel = viewsOrdersCrossBranch(roles)
+    ? "All orders"
+    : "Orders";
 
   const is = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
@@ -63,7 +75,7 @@ export function AppSidebar({
             as="a"
             href="/orders"
             icon={<ShoppingCart className="h-4 w-4" />}
-            label="Orders"
+            label={ordersLabel}
             active={is("/orders")}
             shortcut="go"
           />

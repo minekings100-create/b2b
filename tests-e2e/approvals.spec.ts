@@ -112,8 +112,8 @@ test.afterAll(async () => {
   await cleanup();
 });
 
-test.describe("Phase 3.2 approval flow", () => {
-  test("manager approves an order, inventory reservation lands + audit trail", async ({
+test.describe("Phase 3.2 approval flow (two-step, 3.2.2b)", () => {
+  test("BM step-1 approve flips submitted → branch_approved, reservations land, audit row", async ({
     page,
   }) => {
     // Pick 2 seeded products.
@@ -145,12 +145,9 @@ test.describe("Phase 3.2 approval flow", () => {
     const firstQty = page.getByRole("spinbutton").first();
     await firstQty.fill("2");
 
-    await page.getByRole("button", { name: "Approve order" }).click();
-    // NOTE: `waitForURL` is NOT a reliable gate here — the server action's
-    // redirect goes to the same `/orders/<id>` the page is already on, so
-    // the regex matches instantly and Playwright resumes before the POST
-    // round-trip finishes. Poll the DB instead until the action's commit
-    // is observable.
+    await page.getByRole("button", { name: "Branch-approve order" }).click();
+    // NOTE: same waitForURL gotcha as the single-step flow — same-path
+    // server-action redirects don't fire `load` reliably. Poll the DB.
     await expect
       .poll(
         async () => {
@@ -163,15 +160,21 @@ test.describe("Phase 3.2 approval flow", () => {
         },
         { timeout: 5_000 },
       )
-      .toBe("approved");
+      .toBe("branch_approved");
 
     const { data: after } = await admin
       .from("orders")
-      .select("status, approved_at, approved_by_user_id")
+      .select(
+        "status, branch_approved_at, branch_approved_by_user_id, approved_at, approved_by_user_id",
+      )
       .eq("id", orderId)
       .single();
-    expect(after?.status).toBe("approved");
-    expect(after?.approved_at).not.toBeNull();
+    expect(after?.status).toBe("branch_approved");
+    expect(after?.branch_approved_at).not.toBeNull();
+    expect(after?.branch_approved_by_user_id).not.toBeNull();
+    // Step-2 fields stay null until HQ acts.
+    expect(after?.approved_at).toBeNull();
+    expect(after?.approved_by_user_id).toBeNull();
 
     // First line carries the capped approved qty.
     const { data: items } = await admin
@@ -182,7 +185,7 @@ test.describe("Phase 3.2 approval flow", () => {
     const qtys = (items ?? []).map((i) => i.quantity_approved);
     expect(qtys.sort()).toEqual([2, 3]);
 
-    // Reservation movements present.
+    // Reservations created at step 1 (per SPEC §8.2).
     const { data: movements } = await admin
       .from("inventory_movements")
       .select("reason, delta")
@@ -190,9 +193,8 @@ test.describe("Phase 3.2 approval flow", () => {
       .eq("reason", "order_reserved");
     expect((movements ?? []).length).toBe(2);
     const totalDelta = (movements ?? []).reduce((a, m) => a + m.delta, 0);
-    expect(totalDelta).toBe(-5); // 2 + 3 reserved = -5 delta total
+    expect(totalDelta).toBe(-5);
 
-    // inventory.quantity_reserved bumped on both products.
     const { data: invs } = await admin
       .from("inventory")
       .select("product_id, quantity_reserved")
@@ -203,19 +205,19 @@ test.describe("Phase 3.2 approval flow", () => {
     );
     expect(reservedSum).toBeGreaterThanOrEqual(5);
 
-    // Audit trail has approve entry.
+    // Audit trail has the new branch_approve action.
     const { data: audit } = await admin
       .from("audit_log")
       .select("action, after_json")
       .eq("entity_type", "order")
       .eq("entity_id", orderId)
-      .eq("action", "approve")
+      .eq("action", "branch_approve")
       .single();
-    expect(audit?.action).toBe("approve");
+    expect(audit?.action).toBe("branch_approve");
     const payload = audit?.after_json as
       | { status?: string; approved_lines?: unknown[] }
       | null;
-    expect(payload?.status).toBe("approved");
+    expect(payload?.status).toBe("branch_approved");
     expect(Array.isArray(payload?.approved_lines)).toBe(true);
     expect(payload!.approved_lines!.length).toBe(2);
 
@@ -269,7 +271,7 @@ test.describe("Phase 3.2 approval flow", () => {
     void orderNumber;
   });
 
-  test("cancel an approved order releases reservations", async ({ page }) => {
+  test("cancel a branch-approved order releases reservations", async ({ page }) => {
     const { data: prods } = await admin
       .from("products")
       .select("id")
@@ -282,11 +284,10 @@ test.describe("Phase 3.2 approval flow", () => {
       4,
     );
 
-    // Approve first via the UI. Poll the DB until the commit is observable
-    // (see the approve test's note about waitForURL on same-path redirects).
+    // Step-1 approve via the UI (BM). Reservations land here, not at step 2.
     await signIn(page, "ams.mgr@example.nl");
     await page.goto(`/orders/${orderId}`);
-    await page.getByRole("button", { name: "Approve order" }).click();
+    await page.getByRole("button", { name: "Branch-approve order" }).click();
     await expect
       .poll(
         async () => {
@@ -299,7 +300,7 @@ test.describe("Phase 3.2 approval flow", () => {
         },
         { timeout: 5_000 },
       )
-      .toBe("approved");
+      .toBe("branch_approved");
 
     // Capture reservation snapshot before cancel.
     const { data: before } = await admin
@@ -309,10 +310,9 @@ test.describe("Phase 3.2 approval flow", () => {
       .single();
     const reservedBefore = before!.quantity_reserved;
 
-    // Reload so the page re-renders with status=approved and the CancelForm
-    // is mounted (the server-redirect to the same path doesn't re-render
-    // the RSC tree client-side reliably under Playwright's navigation
-    // semantics).
+    // Reload so the page re-renders with status=branch_approved and the
+    // CancelForm is mounted (same-path RSC redirect doesn't reliably
+    // re-render under Playwright's navigation semantics).
     await page.reload();
 
     // Cancel.

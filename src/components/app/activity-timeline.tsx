@@ -110,12 +110,29 @@ function describeAction(action: string): string {
   switch (action) {
     case "submit":
       return "Submitted";
+    // Pre-3.2.2 single-step approval. Kept so legacy audit rows
+    // (and the synthetic backfill from migration 20260418000006)
+    // still render as "Approved" rather than the raw action name.
     case "approve":
       return "Approved";
+    case "branch_approve":
+      return "Branch-approved";
+    case "hq_approve":
+      return "HQ-approved";
+    // Pre-3.2.2 single-step reject. New flow emits step-tagged
+    // variants so the timeline distinguishes who rejected and when.
     case "reject":
       return "Rejected";
+    case "branch_reject":
+      return "Rejected by branch";
+    case "hq_reject":
+      return "Rejected by HQ";
     case "cancel":
       return "Cancelled";
+    case "auto_cancel_no_branch_approval":
+      return "Auto-cancelled (branch timeout)";
+    case "auto_cancel_no_hq_approval":
+      return "Auto-cancelled (HQ timeout)";
     case "cart_add":
       return "Added to cart";
     case "cart_update_qty":
@@ -148,7 +165,13 @@ function describeAction(action: string): string {
 function summarisePayload(action: string, payload: Json | null): string {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
   const obj = payload as Record<string, unknown>;
-  if (action === "approve" && Array.isArray(obj.approved_lines)) {
+  // `branch_approve` (3.2.2b) carries the same `approved_lines` shape as
+  // the legacy single-step `approve`, so both surface the "qty adjusted"
+  // hint via this branch.
+  if (
+    (action === "approve" || action === "branch_approve") &&
+    Array.isArray(obj.approved_lines)
+  ) {
     const lines = obj.approved_lines as Array<{
       requested?: number;
       approved?: number;
@@ -163,7 +186,12 @@ function summarisePayload(action: string, payload: Json | null): string {
       return `adjusted ${reduced} line${reduced === 1 ? "" : "s"} qty down`;
     }
   }
-  if (action === "reject" && typeof obj.reason === "string") {
+  if (
+    (action === "reject" ||
+      action === "branch_reject" ||
+      action === "hq_reject") &&
+    typeof obj.reason === "string"
+  ) {
     return truncate(obj.reason, 80);
   }
   if (action === "invoice_issue" && typeof obj.invoice_number === "string") {

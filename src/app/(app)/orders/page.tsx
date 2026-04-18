@@ -105,7 +105,8 @@ export default async function OrdersPage({
                   <TableHead className="w-[160px]">Number</TableHead>
                   <TableHead className="w-[90px]">Branch</TableHead>
                   <TableHead>Created by</TableHead>
-                  <TableHead>Approved by</TableHead>
+                  <TableHead>Branch-approved by</TableHead>
+                  <TableHead>HQ-approved by</TableHead>
                   <TableHead className="w-[130px]">Status</TableHead>
                   <TableHead className="w-[120px]">Submitted</TableHead>
                   <TableHead className="w-[70px] text-right">Lines</TableHead>
@@ -128,6 +129,9 @@ export default async function OrdersPage({
                     </TableCell>
                     <TableCell className="text-fg-muted truncate">
                       {o.created_by_email ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-fg-muted truncate">
+                      {o.branch_approved_by_email ?? "—"}
                     </TableCell>
                     <TableCell className="text-fg-muted truncate">
                       {o.approved_by_email ?? "—"}
