@@ -78,13 +78,33 @@ export async function seedAuditLog(
       continue;
     }
 
+    // Step 1 — Branch Manager approval (3.2.2). Synthetic for legacy
+    // single-step rows is handled by the migration; this path covers
+    // demo orders generated *with* a branch_approved_at.
+    if (o.branch_approved_at) {
+      rows.push({
+        entity_type: "order",
+        entity_id: o.id,
+        action: "branch_approve",
+        actor_user_id: o.branch_approved_by_user_id,
+        before_json: { status: "submitted" },
+        after_json: tag({ status: "branch_approved" }),
+        created_at: o.branch_approved_at,
+      });
+    }
+
+    // Step 2 — HQ Manager approval. `approve` action name is preserved
+    // for the final approval to keep the legacy audit trail readable;
+    // 3.2.2b will introduce `hq_approve` for new flows.
     if (o.approved_at) {
       rows.push({
         entity_type: "order",
         entity_id: o.id,
         action: "approve",
         actor_user_id: o.approved_by_user_id,
-        before_json: { status: "submitted" },
+        before_json: {
+          status: o.branch_approved_at ? "branch_approved" : "submitted",
+        },
         after_json: tag({ status: "approved" }),
         created_at: o.approved_at,
       });

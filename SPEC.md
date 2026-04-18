@@ -136,15 +136,22 @@ Build an **internal B2B procurement platform** for a multi-branch Dutch company.
 
 ## 5. Roles & Permission Matrix
 
-| Role              | Catalog | Order                   | Approve | Pack    | Invoices           | Admin                      |
-|-------------------|---------|-------------------------|---------|---------|--------------------|----------------------------|
-| **Branch User**   | Read    | Create (own branch)     | —       | —       | Read (own branch)  | —                          |
-| **Branch Manager**| Read    | Create + read branch    | Own branch | —    | Read (own branch)  | Manage users in own branch |
-| **Packer**        | Read    | Read (assigned)         | —       | Full    | —                  | —                          |
-| **Administration**| Read    | Read (all)              | —       | —       | Full               | Manage products, reports   |
-| **Super Admin**   | Full    | Full                    | Full    | Full    | Full               | Everything incl. settings  |
+Approval is **two-step** (3.2.2): Branch Manager owns step 1 (`submitted → branch_approved`), HQ Manager owns step 2 (`branch_approved → approved`). Either may reject at their own step. HQ does **not** substitute for a Branch Manager — if step 1 times out, the order auto-cancels rather than escalating.
 
-A user can hold multiple role+branch combinations (e.g. manager at branch A, user at branch B). Super Admin and Administration roles are branch-independent.
+| Role                  | Catalog | Order                          | Approve                                      | Pack | Invoices           | Admin                          |
+|-----------------------|---------|--------------------------------|----------------------------------------------|------|--------------------|--------------------------------|
+| **Branch User**       | Read    | Create (own branch)            | —                                            | —    | Read (own branch)  | —                              |
+| **Branch Manager**    | Read    | Create + read branch           | Step 1 (own branch): `submitted → branch_approved` | — | Read (own branch) | Manage users in own branch     |
+| **Packer**            | Read    | Read (post-approval only)      | —                                            | Full | —                  | —                              |
+| **HQ Manager**        | Read    | Read (all branches)            | Step 2 (cross-branch): `branch_approved → approved` | — | Read (all)         | —                              |
+| **Administration**    | Read    | Read (all)                     | —                                            | —    | Full               | Manage products, reports       |
+| **Super Admin**       | Full    | Full                           | Full (any step, any branch)                  | Full | Full               | Everything incl. settings      |
+
+A user can hold multiple role+branch combinations (e.g. manager at branch A, user at branch B). Super Admin, Administration, and HQ Manager roles are branch-independent.
+
+**HQ Manager — explicit non-rights (3.2.2):** cannot edit catalog, cannot edit inventory, cannot manage users, cannot mutate invoices, cannot approve at step 1 (no branch substitution). Read-only outside of step-2 approval / rejection / cancellation of in-flight orders.
+
+**Packer — visibility narrowed (3.2.2):** packers see orders only in fulfilment-stage statuses (`approved`, `picking`, `packed`, `shipped`, `delivered`). Drafts, `submitted`, `branch_approved`, `rejected`, `closed`, and `cancelled` are hidden — they are not the packer's concern and the narrower view reduces queue noise.
 
 ## 6. Data Model (Postgres)
 
@@ -153,7 +160,7 @@ All tables have `id uuid primary key default gen_random_uuid()`, `created_at tim
 ### Identity & tenancy
 - **users** — mirrors `auth.users`; `email`, `full_name`, `phone`, `active`, `ui_theme` (`system`/`light`/`dark`, default `system`)
 - **branches** — `name`, `branch_code` (unique, human), `email`, `phone`, `visiting_address`, `billing_address`, `shipping_address`, `kvk_number`, `vat_number`, `iban`, `monthly_budget_cents` (nullable), `payment_term_days` (default 14), `active`
-- **user_branch_roles** — `user_id`, `branch_id` (nullable for admin/super), `role` enum. Unique on triple.
+- **user_branch_roles** — `user_id`, `branch_id` (nullable for `super_admin`, `administration`, `hq_operations_manager`), `role` enum (`branch_user`, `branch_manager`, `packer`, `hq_operations_manager`, `administration`, `super_admin`). Unique on triple.
 
 ### Catalog & inventory
 - **product_categories** — `name`, `parent_id` (nullable, nesting), `sort_order`
@@ -163,7 +170,7 @@ All tables have `id uuid primary key default gen_random_uuid()`, `created_at tim
 - **inventory_movements** — append-only: `product_id`, `delta`, `reason` enum (`order_reserved`, `order_released`, `packed`, `adjustment_in`, `adjustment_out`, `return_in`), `reference_type`, `reference_id`, `actor_user_id`
 
 ### Orders
-- **orders** — `order_number` (e.g. `ORD-2026-0001`, yearly sequence), `branch_id`, `created_by_user_id`, `status` enum (`draft`, `submitted`, `approved`, `rejected`, `picking`, `packed`, `shipped`, `delivered`, `closed`, `cancelled`), `submitted_at`, `approved_at`, `approved_by_user_id`, `rejection_reason`, `total_net_cents`, `total_vat_cents`, `total_gross_cents`, `notes`
+- **orders** — `order_number` (e.g. `ORD-2026-0001`, yearly sequence), `branch_id`, `created_by_user_id`, `status` enum (`draft`, `submitted`, `branch_approved`, `approved`, `rejected`, `picking`, `packed`, `shipped`, `delivered`, `closed`, `cancelled`), `submitted_at`, `branch_approved_at`, `branch_approved_by_user_id` (step 1, 3.2.2), `approved_at`, `approved_by_user_id` (step 2 — final HQ approval), `rejection_reason`, `total_net_cents`, `total_vat_cents`, `total_gross_cents`, `notes`. Pre-3.2.2 single-step rows have `branch_approved_*` backfilled to 4 hours before their `approved_*` (see migration `20260418000006`).
 - **order_items** — `order_id`, `product_id`, `quantity_requested`, `quantity_approved`, `quantity_packed`, `quantity_shipped`, `unit_price_cents_snapshot`, `vat_rate_snapshot`, `line_net_cents`
 
 ### Fulfillment
@@ -188,8 +195,17 @@ All tables have `id uuid primary key default gen_random_uuid()`, `created_at tim
 
 ## 7. Status Flows
 
-**Order:** `draft → submitted → approved → picking → packed → shipped → delivered → closed`
-Side paths: `submitted → rejected`; from any pre-shipped state → `cancelled`.
+**Order (3.2.2 two-step approval):**
+`draft → submitted → branch_approved → approved → picking → packed → shipped → delivered → closed`
+
+Side paths:
+- `submitted → rejected` (Branch Manager rejects at step 1)
+- `branch_approved → rejected` (HQ Manager rejects at step 2)
+- `submitted → cancelled` (auto-cancel after 2 working days, or manual cancel by creator/admin) — see §8.8
+- `branch_approved → cancelled` (auto-cancel after 3 working days, or manual cancel) — see §8.8
+- Any pre-shipped state → `cancelled` (manual by HQ Manager / Administration / Super Admin)
+
+Inventory reservations land on the `submitted → branch_approved` transition (step 1). HQ rejection or auto-cancel at step 2 must release them.
 
 **Invoice:** `draft → issued → paid`; cron transitions `issued → overdue` when past `due_at`; admin can `→ cancelled`.
 
@@ -207,11 +223,23 @@ Side paths: `submitted → rejected`; from any pre-shipped state → `cancelled`
    - If submitted anyway: order proceeds, admin gets an immediate email, AND the admin dashboard shows a badge on that branch ("New order while overdue").
 5. On submit: status `submitted`, email to branch managers.
 
-### 8.2 Approval (Branch Manager)
-1. Approval queue shows `submitted` orders for the manager's branch(es), oldest first.
+### 8.2 Approval (two-step, 3.2.2)
+
+Approval flows through **two independent decision steps**. Either step may approve, reject, or auto-cancel on timeout.
+
+#### Step 1 — Branch Manager (`submitted → branch_approved`)
+1. Approval queue at `/approvals` shows `submitted` orders for the manager's branch(es), oldest first.
 2. Manager can adjust `quantity_approved` downward per line, then approve with optional note — OR reject with required reason.
-3. On approve: status `approved`, inventory reservations created (`inventory_movements` with reason `order_reserved`), email to packer pool.
+3. On approve: status `branch_approved`, `branch_approved_at` + `branch_approved_by_user_id` set, inventory reservations created (`inventory_movements` with reason `order_reserved`), email to HQ Managers (the step-2 audience).
 4. If any approved quantity exceeds `quantity_on_hand - quantity_reserved`, a hard warning appears; approval still allowed (becomes backorder) but flagged on the pick list.
+5. Auto-cancel timer starts at `submitted_at`: 2 working days. See §8.8.
+
+#### Step 2 — HQ Manager (`branch_approved → approved`)
+1. HQ approval queue at `/approvals` shows orders in `branch_approved` across **all branches**, oldest first. The HQ Manager cannot see `submitted` orders (those are step 1's responsibility) and cannot substitute for a Branch Manager.
+2. HQ reviews the line-level approved quantities. The HQ Manager **does not adjust quantities** — that's the Branch Manager's call. HQ approves the package as a whole, OR rejects with required reason.
+3. On approve: status `approved`, `approved_at` + `approved_by_user_id` set (final approval timestamps), email to packer pool. Inventory stays reserved (already at step 1).
+4. On reject: status `rejected`, reservations released (`inventory_movements` with reason `order_released`), email to creator + Branch Manager who approved step 1.
+5. Auto-cancel timer starts at `branch_approved_at`: 3 working days. See §8.8.
 
 ### 8.3 Picking & Packing (Packer, tablet-first)
 1. Packer sees queue of `approved` orders, priority = oldest `approved_at`.
@@ -250,6 +278,21 @@ Side paths: `submitted → rejected`; from any pre-shipped state → `cancelled`
    - `replace` → creates a new linked order, skips approval
    - `credit_note` → credit balance applied to open invoices
 4. Inventory movement `return_in` if the item is restockable.
+
+### 8.8 Auto-cancel policy (3.2.2)
+
+Stale orders are auto-cancelled by a nightly cron at **08:00 Europe/Amsterdam** (`/api/cron/auto-cancel-stale-orders`). "Working days" = Mon–Fri Europe/Amsterdam; public holidays are out of scope (configurable via the Phase 7 holidays-config feature).
+
+| Trigger | Condition | Cancellation reason | Reminders before cancel | On cancel |
+|---|---|---|---|---|
+| **Step-1 timeout** | `status='submitted'` AND `submitted_at < now() − 2 working days` | `auto_cancel_no_branch_approval` | Email to Branch Managers at `submitted_at + 1 working day` | Email to creator (apology + resubmit) and Branch Managers. No reservations to release (none were created at step 1). |
+| **Step-2 timeout** | `status='branch_approved'` AND `branch_approved_at < now() − 3 working days` | `auto_cancel_no_hq_approval` | Email to HQ Managers at +1 working day; email to HQ Managers + Administration at +2 working days | Email to creator, Branch Manager who approved step 1, HQ Managers, Administration. **Releases reservations** via `inventory_movements` with reason `order_released`. |
+
+Manual cancellation by creator (own draft), Branch Manager (own branch, pre-shipped), HQ Manager (cross-branch, pre-shipped), or Administration / Super Admin (any pre-shipped state) remains available throughout — the cron only handles the timeout case.
+
+**HQ does not substitute for a Branch Manager on step-1 timeout.** A timed-out submitted order auto-cancels rather than escalating; the branch must resubmit.
+
+**Working-days helper:** `src/lib/dates/working-days.ts` exposes `addWorkingDays(date, n, opts?)` and `isWorkingDay(date, opts?)`. The `holidays?: Date[]` option is plumbed through but unused until Phase 7. The same helper is reused in Phase 5 for invoice `due_at`.
 
 ## 9. Screens / Navigation
 

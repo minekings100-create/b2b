@@ -5,8 +5,11 @@ The single source of truth for **where we are right now**. Updated every time a 
 ## Current status
 
 - **Project:** internal B2B procurement platform (SPEC §1).
-- **Active phase:** **Phase 3 — Ordering & approval.** Starting **3.1 Cart + order submit**.
-- **Last merged PR:** #13 Phase 2.5 (Category CRUD).
+- **Active phase:** **Phase 3 — Ordering & approval.** In flight: **3.2.2a** (HQ Manager role + two-step schema, this PR).
+- **Last merged PR on `main`:** #15 Phase 3.2.1 (transparency + traceability polish).
+- **Open / paused branches:**
+  - `phase-3-3-1-email-infra` (commit `722e2e5`) — built and verified, **paused** pending 3.2.2 landing. Rebase + recipient changes after 3.2.2c merges.
+  - `phase-3-2-2a-schema` — this PR.
 - **Phase 2 complete:** all sub-phases (2.1–2.5) merged. See Phase 2 roadmap below.
 - **Proposed Phase 2.6** (Inbound goods & replenishment) stays on [`BACKLOG.md`](./BACKLOG.md); explicitly deferred on 2026-04-18 — may slot in after Phase 3.
 
@@ -75,6 +78,104 @@ Lives in [`docs/BACKLOG.md`](./BACKLOG.md). SPEC §11 is not modified until acce
 |------|-------|----------|--------|
 | 2.6  | Inbound goods & replenishment | 2026-04-17 | Proposed (renamed from 2.5 on 2026-04-18). **Deferred on 2026-04-18** — will be revisited after Phase 3. |
 | cross-cutting | Archive / Restore UX pattern | 2026-04-18 | Captured in BACKLOG §Cross-cutting. Implement between Phase 6 and 7, or as Phase 7 polish — decide then. |
+
+## 3.2.2 plan — HQ Manager role + two-step approval *(awaiting confirmation, 2026-04-18)*
+
+### Status of adjacent work
+
+- **3.3.1 (email infra) is built and pushed to `phase-3-3-1-email-infra` (commit `722e2e5`) but not merged.** Holding so 3.2.2 can land first; 3.3.1 will then be rebased on top with updated recipient sets + the new triggers listed below.
+- **PR open count after 3.2.2 lands:** 3.2.2a → 3.2.2b → 3.2.2c → rebased 3.3.1. Strict serial merge.
+
+### Scope (mirrors the user's brief, condensed)
+
+- New role `hq_operations_manager` (display "HQ Manager"), no branch assignment (HQ is global).
+- Insert `branch_approved` between `submitted` and `approved` in `order_status`.
+- Branch Manager owns step 1 (`submitted → branch_approved | rejected`).
+- HQ Manager owns step 2 (`branch_approved → approved | rejected | cancelled`).
+- Auto-cancel on timeout: 2 working days (step 1) / 3 working days (step 2). Working days = Mon–Fri Europe/Amsterdam; holidays out of scope.
+- Inventory reservations stay at step 1 (branch approval) — HQ rejection or auto-cancel at step 2 must release.
+- Existing `approved` rows are not retroactively pulled back through step 1; see backfill decision below.
+
+### PR split (refining the user's proposal)
+
+| Sub | Title | What ships | What does NOT change |
+|-----|-------|-----------|----------------------|
+| **3.2.2a** | Schema + RLS + role enum + seed | Migration adds `branch_approved` to `order_status`, `branch_approved_at` + `branch_approved_by_user_id` columns on `orders`, `hq_operations_manager` to `user_role`. RLS clauses for HQ Manager (cross-branch SELECT/UPDATE on orders + audit_log + order_items). Packer SELECT narrowed to status ∈ {approved, picking, packed, shipped, delivered}. Seed adds `hq.ops@example.nl` + a few `branch_approved` orders for visual review. SPEC.md updated in the same PR (no doc drift). | Approval action still flows `submitted → approved` directly; UI unchanged. The new schema sits empty until 3.2.2b wires the behaviour. **Acceptable transitional state**: any order submitted between 3.2.2a and 3.2.2b uses the legacy path, which is harmless because the merge is sequential. |
+| **3.2.2b** | Two-step approval flow + HQ queue UI | `approveOrder` becomes `branchApproveOrder` (`submitted → branch_approved`, writes audit `branch_approve`) + new `hqApproveOrder` (`branch_approved → approved`, writes audit `hq_approve`). `rejectOrder` learns both source states. `cancelOrder` adds `branch_approved` to the cancellable set + the release-reservations branch. `/approvals` page becomes role-aware: branch managers see step 1; HQ managers see a tabbed view ("Waiting for me" = `branch_approved`, "Branch-level waiting" = `submitted` read-only, "All pending"). `OrderStatusPill` colour map gains `branch_approved` (warning/amber). `ActivityTimeline.describeAction` learns the new actions. Sidebar adds an entry for HQ Manager. | Cron jobs and reminders. Email triggers (those rebase in 3.3.1). |
+| **3.2.2c** | Auto-cancel cron + working-days lib + tests | New `src/lib/dates/working-days.ts` (pure module, holiday-injectable API for Phase 5 reuse). New `/api/cron/auto-cancel-stale-orders` route — finds `submitted` orders past 2 working days and `branch_approved` orders past 3 working days, cancels them with audit reason `auto_cancel_no_branch_approval` / `auto_cancel_no_hq_approval`, releases reservations on the step-2 path. `vercel.json` gets a new `0 6 * * *` UTC schedule (= 08:00 Europe/Amsterdam in winter, 09:00 CEST). Vitest suite for `working-days`. Playwright e2e: stale-order fixture + manual cron invocation + assertion that order is cancelled, reservations released, audit row written. | New email triggers (rebase to 3.3.1). |
+
+### Schema decisions (need user signoff before 3.2.2a starts)
+
+| # | Decision | My recommendation | Why |
+|---|---|---|---|
+| **S1** | Column naming for the two timestamps | Keep `approved_at` / `approved_by_user_id` as the **final** approval (HQ). Add `branch_approved_at` / `branch_approved_by_user_id` for step 1. | No rename → existing `fetchOrderDetail`, list views, RLS policies, and the activity timeline keep referencing `approved_at` with the same semantic ("fully approved"). Pure additive change. |
+| **S2** | Backfill existing `approved` orders | **Backfill** `branch_approved_at = approved_at - interval '4 hours'`, `branch_approved_by_user_id = approved_by_user_id`. Insert a synthetic `branch_approve` audit row dated 4h before the real `approve` row, actor = the same approver. | Cleaner demo data — every row in the new model has both timestamps. Audit trail becomes a "best reconstruction" rather than partial. Only affects historical demo rows; pure SQL one-shot in the migration. **Alternative**: leave NULL on legacy rows and document "pre-3.2.2 single-step" — simpler but inconsistent. |
+| **S3** | RLS state-machine encoding | Keep RLS coarse (tenancy + role only). Application layer enforces source-state + target-state checks. | Existing pattern (approval.ts already does `if (order.status !== 'submitted') return error`). Encoding transitions in `WITH CHECK` clauses ~doubles policy code and forces every state-machine change to ship a migration. Defense-in-depth via the app layer is acceptable for an internal tool; we already audit every mutation. **Alternative**: encode in RLS — flag if you want stricter posture. |
+| **S4** | New audit action names | `branch_approve`, `hq_approve`, `auto_cancel_no_branch_approval`, `auto_cancel_no_hq_approval`. Old `approve` action stays in the audit log for legacy rows. | Avoids ambiguity in the timeline UI. `ActivityTimeline.describeAction` switch grows by 4 cases. |
+| **S5** | Working-days helper location | New `src/lib/dates/working-days.ts`. API: `addWorkingDays(date, n, opts?: { tz?: string; holidays?: Date[] })`, `isWorkingDay(date, opts?)`, `workingDaysBetween(a, b, opts?)`. Pure, no DB. Vitest unit suite. | User flagged it: "we'll use it in Phase 5 for invoice due_at too". Holiday-injection at the option level means Phase 5 (or a future Phase 7 holidays-config feature) can pass NL public holidays without API churn. |
+
+### Risks I'm flagging
+
+1. **Reservations released on HQ rejection.** Step 1 reserves; step 2 might reject. The `cancelOrder` release path scans `order_items.quantity_approved > 0` lines and releases each — which works because `branch_approve` populates `quantity_approved`. The new `hqRejectOrder` action will reuse the same release helper. **Test:** the e2e suite must assert that an HQ rejection releases reservations (not just changes status).
+2. **Packer's view shrinks.** Today packers see all orders (including `submitted`). 3.2.2a narrows that to `{approved, picking, packed, shipped, delivered}`. No existing test asserts the wider view, so nothing breaks — but a packer running an open `/orders` page during deploy would see their list contract. Acceptable for a sequential rollout; flag in 3.2.2a's PR description.
+3. **Sidebar route ambiguity.** HQ Manager has no branch, so "/orders" filtered by branch makes no sense for them. Proposed label: keep route at `/orders` but the page already shows everything RLS allows; HQ's RLS sees all branches → the same page renders cross-branch automatically. Sidebar copy stays "Orders" rather than introducing a separate "All orders" route. **Confirm this is OK with you** — your spec said "show 'All orders' instead", which I'd push back on as unnecessary route duplication. The data is already cross-branch; it's just labelling.
+4. **DST drift on the cron.** `0 6 * * *` UTC = 08:00 Europe/Amsterdam in winter, 09:00 in CEST (a one-hour drift twice a year). Acceptable for a once-a-day auto-cancel job. Phase 7 may revisit if customer cares.
+5. **Demo seed turbulence.** Backfilling existing approved orders + inserting `branch_approved` examples means re-running `npm run seed:demo` on a non-empty DB. The demo seed is idempotent for catalog/users; need to verify it stays idempotent for the new order rows. Will validate in 3.2.2a.
+
+### Out of scope (deferred, called out so we don't forget)
+
+- Public holidays — not configurable until a future Phase ships an admin UI for it.
+- Substitute approvers (HQ jumps in if branch times out). Explicitly rejected in user brief: "If branch-level times out, order auto-cancels — HQ doesn't jump in."
+- Real-time notifications. Polling only (3.3.2 already aligned to this).
+- Email triggers — these get added in the **3.3.1 rebase** after 3.2.2c merges. Tracked changes for that rebase:
+  - Existing `order_approved` → repurpose as "fully approved" (HQ done) → packers. **No rename needed.**
+  - Add `order_branch_approved` → HQ Managers.
+  - Add `order_branch_rejected` (was `order_rejected` from `submitted`) → creator.
+  - Add `order_hq_rejected` → creator + branch manager who approved step 1.
+  - Add `order_auto_cancelled` → creator + branch manager + (step-2 only) HQ Managers + admins.
+  - Existing `order_awaiting_approval_reminder` → split into `submitted_awaiting_branch_reminder` + `branch_approved_awaiting_hq_reminder`.
+
+### Decisions confirmed (2026-04-18)
+
+- **S1** — keep `approved_at` / `approved_by_user_id` for the **final** (HQ) approval; add `branch_approved_at` / `branch_approved_by_user_id` for step 1.
+- **S2** — backfill historical `approved` rows + synthetic `branch_approve` audit entry per row. Lives in `20260418000006_two_step_backfill_legacy.sql`.
+- **S3** — coarse RLS (tenancy + role only). Server Actions enforce source-state and target-state. Audit log + Vitest RLS suite are the safety net.
+- **S4** — *clarified by user*: **one orders entry per role, never both**. Branch User / Branch Manager / Packer see "Orders" (label = scope is own-branch). HQ Manager / Administration / Super Admin see "All orders" (label = scope is cross-branch). Same `/orders` route. The role check that drives the label lives in `viewsOrdersCrossBranch(roles)` in `src/lib/auth/roles.ts`. Ships in 3.2.2b.
+
+### 3.2.2a delivery (this PR)
+
+| Item | File | Notes |
+|---|---|---|
+| Add `branch_approved` to `order_status` | `supabase/migrations/20260418000004_two_step_approval_schema.sql` | `ALTER TYPE … ADD VALUE … BEFORE 'approved'`. Partial index on `branch_approved_at IS NOT NULL` (cron-friendly) — using a status-filter would have failed because the new enum value can't be referenced inside the same migration that adds it. |
+| Add `branch_approved_at` + `branch_approved_by_user_id` to `orders` | same migration | Pure additive. Existing reads/writes referencing `approved_at` keep their semantic ("fully approved"). |
+| Add `hq_operations_manager` to `user_role` | `…000005_hq_operations_manager_role.sql` | Single `ALTER TYPE`. HQ has no branch assignment; existing `user_branch_roles_admin_unique` partial index already covers global roles. |
+| Backfill historical approvals | `…000006_two_step_backfill_legacy.sql` | UPDATE sets `branch_approved_at = approved_at − 4h`, `branch_approved_by_user_id = approved_by_user_id`. INSERT-from-SELECT adds a synthetic `branch_approve` audit row with `after_json.synthetic = true`. Idempotent. |
+| HQ RLS + packer narrow | `…000007_hq_role_rls_and_packer_narrow.sql` | `ALTER POLICY orders_select` adds HQ + narrows packer to fulfilment statuses; `ALTER POLICY orders_update` adds HQ. `order_items` and `audit_log` policies inherit transitively via existing EXISTS subqueries. |
+| `roles.ts` | `src/lib/auth/roles.ts` | `ROLES` includes `hq_operations_manager`; new `isHqManager()` and `viewsOrdersCrossBranch()` helpers. `isAdmin()` deliberately unchanged — HQ is not an admin. |
+| Seed updates | `scripts/seed/users.ts`, `scripts/seed/demo/orders.ts`, `scripts/seed/demo/audit.ts` | Adds `hq.ops@example.nl` (password `demo-demo-1`). Demo orders gain a `branch_approved` bucket (3 rows) and the audit seed emits a `branch_approve` row when `branch_approved_at` is set. |
+| SPEC.md | §5 role matrix, §6 orders data model, §7 status flow, §8.2 two-step approval, new §8.8 auto-cancel | Schema + spec land together so doc and DB never drift. |
+
+**Out of scope for 3.2.2a (lands in 3.2.2b/c):**
+
+- Approval action behaviour change. The existing `approveOrder` keeps doing `submitted → approved` until 3.2.2b lands. Any order submitted between 3.2.2a and 3.2.2b uses the legacy single-step path — harmless because merges are sequential.
+- `OrderStatusPill` colour map for `branch_approved` (will be `warning` / amber to indicate "mid-process") — handled in 3.2.2b.
+- `ActivityTimeline.describeAction` cases for `branch_approve`, `hq_approve`, `auto_cancel_*` — 3.2.2b.
+- Sidebar label switch ("Orders" ↔ "All orders") per S4 — 3.2.2b.
+- Cron + working-days helper + auto-cancel — 3.2.2c.
+
+### In-flight orders at deploy time (carry through to 3.2.2c release notes)
+
+When 3.2.2c (the auto-cancel cron) ships:
+
+- Any order in `status='submitted'` with `submitted_at` more than 2 working days ago will be auto-cancelled on the next 08:00 Europe/Amsterdam cron tick.
+- Any order in `status='branch_approved'` with `branch_approved_at` more than 3 working days ago will be auto-cancelled on the same tick.
+- Either case: stuck orders that have been sitting longer than the new SLA — acceptable to clean them up, but operators may want to manually approve or cancel before the cron runs.
+- 3.2.2c's release notes (in `docs/CHANGELOG.md`) must include this verbatim warning: *"After auto-cancel cron deploys, any orders submitted more than 2 working days ago without branch approval will be auto-cancelled on the next cron run (08:00 Europe/Amsterdam). If you have pending orders you want to keep, approve or cancel them manually before deploying 3.2.2c."*
+- 3.2.2c must add a Playwright case that simulates this scenario end-to-end: insert a stale `submitted` order, hit the cron route, assert the order ends up `cancelled` with audit reason `auto_cancel_no_branch_approval`.
+
+### 3.3.1 holding pattern
+
+`phase-3-3-1-email-infra` (commit `722e2e5`) is paused. After 3.2.2c merges, rebase onto `main`, then update the recipient resolvers and add the new triggers (full list in the "Out of scope (deferred…)" subsection above).
 
 ## How this file is maintained
 
