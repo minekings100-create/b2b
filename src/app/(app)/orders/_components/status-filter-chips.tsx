@@ -14,10 +14,14 @@ import type { OrderStatusFilter } from "@/lib/db/orders-list";
  *   Done         → delivered, closed                   (completed)
  *   Halted       → rejected, cancelled                 (stopped early)
  *
- * Group separators are subtle vertical bars; on narrow widths the row
- * wraps and the bars wrap with their preceding chip via `whitespace-nowrap`
- * on the wrapper. Draft is intentionally omitted — drafts are personal
- * carts, not "orders" in the §8.2 sense.
+ * The first iteration (3.2.2a) used a 1px `h-4 w-px` divider which was
+ * effectively invisible. This iteration uses `border-l` on the group
+ * wrapper with `pl-3 ml-3` breathing room — same visual weight as the
+ * §4 sidebar dividers, immediately readable. Active chip uses the strong
+ * accent (indigo-600 fill, white text) — `accent-subtle` was too quiet.
+ *
+ * Draft is intentionally omitted — drafts are personal carts, not
+ * "orders" in the §8.2 sense.
  */
 
 type Chip = {
@@ -70,20 +74,22 @@ export function StatusFilterChips({
   return (
     <nav
       aria-label="Filter orders by status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-gutter pt-2"
+      className="flex flex-wrap items-center gap-y-1.5 px-gutter pt-2"
     >
       {GROUPS.map((group, gi) => (
         <div
           key={group.name}
-          className="flex flex-wrap items-center gap-1.5"
+          data-group={group.name.toLowerCase()}
+          className={cn(
+            "flex flex-wrap items-center gap-1.5",
+            // Visible 1px divider between groups + breathing room. The
+            // border collapses on wrap because the parent is `flex-wrap`
+            // — acceptable; on narrow widths a vertical line in the
+            // middle of a wrapped row would be confusing anyway.
+            gi > 0 && "ml-3 border-l border-zinc-200 pl-3 dark:border-zinc-800",
+          )}
           aria-label={group.name}
         >
-          {gi > 0 ? (
-            <span
-              aria-hidden
-              className="hidden h-4 w-px bg-border sm:inline-block"
-            />
-          ) : null}
           {group.chips.map((chip) => {
             const href =
               chip.value === "all"
@@ -95,12 +101,15 @@ export function StatusFilterChips({
                 key={chip.value}
                 href={href}
                 data-active={isActive || undefined}
+                aria-pressed={isActive}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors duration-150",
                   isActive
-                    ? "bg-accent-subtle text-accent-subtle-fg ring-accent/30"
-                    : "bg-surface text-fg-muted ring-border hover:text-fg",
+                    ? // Strong active state — accent fill, white text.
+                      // Reads at a glance; matches `Button variant="primary"`.
+                      "bg-accent text-accent-fg ring-accent shadow-sm"
+                    : "bg-surface text-fg-muted ring-border hover:text-fg hover:bg-surface-elevated",
                 )}
               >
                 {chip.label}

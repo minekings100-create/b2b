@@ -67,6 +67,55 @@ test.describe("3.2.2a HQ /orders visibility + chips + palette", () => {
     }
   });
 
+  test("filter chip groups are visually distinct (post-visual-review fix)", async ({
+    page,
+  }) => {
+    await signIn(page, "hq.ops@example.nl");
+    await page.goto("/orders");
+
+    // The four lifecycle groups + "All" should each be marked with a
+    // `data-group` attribute on their wrapper. Earlier iteration used a
+    // `h-4 w-px` divider that was effectively invisible; this test
+    // catches a regression to that invisible state by asserting the
+    // group wrapper carries the data attribute *and* the non-first
+    // groups carry a left border class.
+    const groups = page.locator("nav[aria-label='Filter orders by status'] [data-group]");
+    await expect(groups).toHaveCount(5);
+
+    // Skip the first group ("All"); the remaining four must have border-l
+    // (the visible 1px divider).
+    for (const groupName of ["pending", "fulfillment", "done", "halted"]) {
+      const wrapper = page.locator(`[data-group="${groupName}"]`);
+      const cls = (await wrapper.getAttribute("class")) ?? "";
+      expect(cls, `group ${groupName} missing border-l divider`).toMatch(
+        /\bborder-l\b/,
+      );
+    }
+  });
+
+  test("active filter chip carries aria-pressed='true' and the strong-active class", async ({
+    page,
+  }) => {
+    await signIn(page, "hq.ops@example.nl");
+
+    // Click "Branch approved" — a chip the prior iteration left visually
+    // unhighlighted. Assert both ARIA state and a class signature that
+    // proves it switched to the strong accent fill.
+    await page.goto("/orders?status=branch_approved");
+
+    const active = page.getByRole("link", {
+      name: "Branch approved",
+      exact: true,
+    });
+    await expect(active).toHaveAttribute("aria-pressed", "true");
+    const cls = (await active.getAttribute("class")) ?? "";
+    expect(cls, "active chip missing bg-accent class").toMatch(/\bbg-accent\b/);
+
+    // Sibling chips must carry aria-pressed='false'.
+    const inactive = page.getByRole("link", { name: "Submitted", exact: true });
+    await expect(inactive).toHaveAttribute("aria-pressed", "false");
+  });
+
   test("every lifecycle status has a filter chip", async ({ page }) => {
     await signIn(page, "hq.ops@example.nl");
     await page.goto("/orders");

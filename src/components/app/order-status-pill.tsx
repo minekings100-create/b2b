@@ -121,6 +121,43 @@ const STYLES: Record<OrderStatus, PillStyle> = {
 
 const FALLBACK: PillStyle = STYLES.draft;
 
+/**
+ * Display labels (3.2.2a, post-visual-review iteration).
+ *
+ * Pills describe **what the user can do** with an order rather than the
+ * raw DB state. The two approval stages are the most confusing —
+ * "Branch approved" and "Approved" sit side-by-side and operators get
+ * confused which is which. Action-oriented labels make the lifecycle
+ * read like a verb timeline:
+ *
+ *   submitted        → "Awaiting branch"   (BM action needed)
+ *   branch_approved  → "Awaiting HQ"       (HQ action needed)
+ *   approved         → "Ready"             (warehouse can pick)
+ *
+ * Filter chip labels in `status-filter-chips.tsx` keep the proper-cased
+ * status names so the URL ↔ label mapping is obvious for filtering.
+ * Pills + chips disagree on purpose: chips filter by status name; pills
+ * communicate state in plain language.
+ *
+ * **Alternative label set** (kept here as a comment so a one-line swap
+ * is trivial): `Branch OK` / `HQ OK` for the two approval stages. Less
+ * action-oriented but more concise. Pick whichever reads better in your
+ * own ops cadence.
+ */
+const LABELS: Record<OrderStatus, string> = {
+  draft: "Draft",
+  submitted: "Awaiting branch",
+  branch_approved: "Awaiting HQ",
+  approved: "Ready",
+  picking: "Picking",
+  packed: "Packed",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  closed: "Closed",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+};
+
 export function OrderStatusPill({
   status,
   size = "sm",
@@ -131,6 +168,8 @@ export function OrderStatusPill({
   className?: string;
 }) {
   const style = STYLES[status as OrderStatus] ?? FALLBACK;
+  const label =
+    LABELS[status as OrderStatus] ?? status.replace(/_/g, " ");
   return (
     <span
       className={cn(
@@ -143,12 +182,13 @@ export function OrderStatusPill({
         className,
       )}
       data-status={status}
+      title={status.replace(/_/g, " ")}
     >
       <span
         aria-hidden
         className={cn("inline-block h-1.5 w-1.5 rounded-full", style.dot)}
       />
-      {status.replace(/_/g, " ")}
+      {label}
     </span>
   );
 }
