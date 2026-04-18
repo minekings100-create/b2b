@@ -38,6 +38,7 @@ const StatusParam = z
   .enum([
     "draft",
     "submitted",
+    "branch_approved",
     "approved",
     "rejected",
     "picking",

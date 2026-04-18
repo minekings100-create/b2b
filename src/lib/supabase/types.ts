@@ -449,6 +449,8 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by_user_id: string | null
+          branch_approved_at: string | null
+          branch_approved_by_user_id: string | null
           branch_id: string
           created_at: string
           created_by_user_id: string
@@ -467,6 +469,8 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by_user_id?: string | null
+          branch_approved_at?: string | null
+          branch_approved_by_user_id?: string | null
           branch_id: string
           created_at?: string
           created_by_user_id: string
@@ -485,6 +489,8 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by_user_id?: string | null
+          branch_approved_at?: string | null
+          branch_approved_by_user_id?: string | null
           branch_id?: string
           created_at?: string
           created_by_user_id?: string
@@ -504,6 +510,13 @@ export type Database = {
           {
             foreignKeyName: "orders_approved_by_user_id_fkey"
             columns: ["approved_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_branch_approved_by_user_id_fkey"
+            columns: ["branch_approved_by_user_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -1121,6 +1134,10 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
         }[]
       }
+      user_shares_branch_with_caller: {
+        Args: { target_user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       inventory_movement_reason:
@@ -1134,6 +1151,7 @@ export type Database = {
       order_status:
         | "draft"
         | "submitted"
+        | "branch_approved"
         | "approved"
         | "rejected"
         | "picking"
@@ -1165,6 +1183,7 @@ export type Database = {
         | "packer"
         | "administration"
         | "super_admin"
+        | "hq_operations_manager"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1304,6 +1323,7 @@ export const Constants = {
       order_status: [
         "draft",
         "submitted",
+        "branch_approved",
         "approved",
         "rejected",
         "picking",
@@ -1338,6 +1358,7 @@ export const Constants = {
         "packer",
         "administration",
         "super_admin",
+        "hq_operations_manager",
       ],
     },
   },

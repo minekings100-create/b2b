@@ -105,7 +105,17 @@ _(none yet)_
 
 ## Phase 7 — Polish
 
-_(none yet)_
+### DST-aware cron scheduling
+_Captured: 2026-04-18 (from 3.2.2 plan)._
+
+Vercel Cron uses UTC, so a schedule pinned to "08:00 Europe/Amsterdam" drifts ±1h across DST boundaries. The auto-cancel cron (3.2.2c, `0 6 * * *` UTC = 08:00 winter / 09:00 CEST) and the awaiting-approval reminder cron (3.3.1, `15 0 * * *` UTC = 02:15 winter / 03:15 CEST) both have this. Acceptable for once-a-day jobs; revisit when a customer cares about exact wall-clock timing.
+
+**Options when picked up:** (a) split each cron into two schedules (one CET, one CEST) with an in-handler timezone gate, (b) move to a cron service with TZ-aware schedules (e.g. an external scheduler hitting our HTTP endpoints), or (c) move to Postgres `pg_cron` with `timezone('Europe/Amsterdam', now())` checks inside the handler.
+
+### Public holidays (NL) for working-days helper
+_Captured: 2026-04-18 (from 3.2.2 plan)._
+
+`src/lib/dates/working-days.ts` (3.2.2c) ships with a `holidays?: Date[]` option already plumbed through but no holiday data wired in. Phase 7 adds: (a) a small admin UI to manage NL public holidays (or import a static list — Koningsdag, Bevrijdingsdag, the standard set), (b) a server helper that loads the active list and passes it to every `addWorkingDays` / `isWorkingDay` call site (auto-cancel cron, invoice `due_at`).
 
 ## Cross-cutting
 

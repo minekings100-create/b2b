@@ -7,8 +7,9 @@ export type SeedUser = {
   assignments: Array<{ role: UserRole; branch_code: string | null }>;
 };
 
-// Distribution: 1 super_admin, 2 administration, 5 branch_manager (1 per
-// branch), 5 packer (HQ-only, no branch), 7 branch_user (rotating).
+// Distribution: 1 super_admin, 2 administration, 1 hq_operations_manager
+// (added in 3.2.2a), 5 branch_manager (1 per branch), 5 packer (HQ-only,
+// no branch), 7 branch_user (rotating).
 export const USERS: SeedUser[] = [
   {
     email: "super@example.nl",
@@ -28,6 +29,13 @@ export const USERS: SeedUser[] = [
     password: "demo-demo-1",
     full_name: "Admin Two",
     assignments: [{ role: "administration", branch_code: null }],
+  },
+
+  {
+    email: "hq.ops@example.nl",
+    password: "demo-demo-1",
+    full_name: "HQ Operations Manager",
+    assignments: [{ role: "hq_operations_manager", branch_code: null }],
   },
 
   {

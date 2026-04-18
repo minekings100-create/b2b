@@ -265,7 +265,12 @@ test.describe("3.2.1 order timeline + approver visibility", () => {
       page.getByRole("navigation", { name: "Filter orders by status" }),
     ).toBeVisible();
 
-    await page.getByRole("link", { name: "Approved" }).click();
-    await expect(page).toHaveURL(/status=approved/);
+    // `exact: true` — 3.2.2a introduced a "Branch approved" chip, so the
+    // substring match would be ambiguous without this qualifier.
+    await page.getByRole("link", { name: "Approved", exact: true }).click();
+    // Match `status=approved` but NOT `status=approved_anything` (i.e. not
+    // `branch_approved`). A negative lookahead for `_` is enough because
+    // `status=approved` at the end of the URL is fine.
+    await expect(page).toHaveURL(/[?&]status=approved(?!_)/);
   });
 });

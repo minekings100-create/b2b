@@ -7,6 +7,7 @@ type AdminClient = SupabaseClient<Database>;
 export type OrderStatus =
   | "draft"
   | "submitted"
+  | "branch_approved"
   | "approved"
   | "rejected"
   | "picking"
@@ -29,6 +30,8 @@ export type SeededOrder = {
   status: OrderStatus;
   created_at: string;
   submitted_at: string | null;
+  branch_approved_at: string | null;
+  branch_approved_by_user_id: string | null;
   approved_at: string | null;
   approved_by_user_id: string | null;
   total_net_cents: number;
@@ -66,9 +69,10 @@ type CategoryRow = { id: string; name: string };
  * Status distribution. Tweak counts here to change the demo shape.
  */
 const DISTRIBUTION: Array<{ status: OrderStatus; count: number; sizePattern: ("small" | "large")[] }> = [
-  { status: "draft",     count: 3, sizePattern: ["small", "small", "large"] },
-  { status: "submitted", count: 3, sizePattern: ["small", "large", "small"] },
-  { status: "approved",  count: 3, sizePattern: ["large", "small", "large"] },
+  { status: "draft",           count: 3, sizePattern: ["small", "small", "large"] },
+  { status: "submitted",       count: 3, sizePattern: ["small", "large", "small"] },
+  { status: "branch_approved", count: 3, sizePattern: ["small", "large", "small"] },
+  { status: "approved",        count: 3, sizePattern: ["large", "small", "large"] },
   { status: "rejected",  count: 2, sizePattern: ["small", "large"] },
   { status: "picking",   count: 2, sizePattern: ["small", "large"] },
   { status: "packed",    count: 3, sizePattern: ["small", "large", "small"] },
@@ -113,6 +117,11 @@ export async function seedOrders(
   const branchManagerByCode = new Map<string, UserRow>();
   const packerUsers: UserRow[] = [];
   const administrationUsers: UserRow[] = [];
+  // HQ Manager (3.2.2a) — global, no branch assignment. May be null on a
+  // first-run seed before the role exists; the step-2 actor falls back to
+  // the branch manager in that case so demo orders still get a populated
+  // approver column.
+  let hqManager: UserRow | null = null;
 
   const { data: roles } = await supabase
     .from("user_branch_roles")
@@ -127,6 +136,7 @@ export async function seedOrders(
     if (!user) continue;
     if (r.role === "packer") packerUsers.push(user);
     else if (r.role === "administration") administrationUsers.push(user);
+    else if (r.role === "hq_operations_manager") hqManager = user;
     else if (r.branch_id) {
       const code = branchCodeById.get(r.branch_id);
       if (!code) continue;
@@ -183,6 +193,8 @@ export async function seedOrders(
     created_by_user_id: string;
     status: OrderStatus;
     submitted_at: string | null;
+    branch_approved_at: string | null;
+    branch_approved_by_user_id: string | null;
     approved_at: string | null;
     approved_by_user_id: string | null;
     rejection_reason: string | null;
@@ -224,6 +236,8 @@ export async function seedOrders(
       const baseAgeDays = 2 + Math.floor(rand() * 42);
       const createdAt = daysBefore(now, baseAgeDays);
       let submittedAt: string | null = null;
+      let branchApprovedAt: string | null = null;
+      let branchApprovedBy: string | null = null;
       let approvedAt: string | null = null;
       let approvedBy: string | null = null;
       let rejectionReason: string | null = null;
@@ -231,6 +245,25 @@ export async function seedOrders(
       if (bucket.status !== "draft") {
         submittedAt = daysBefore(now, Math.max(0, baseAgeDays - 1));
       }
+      // Step-1 (Branch Manager) approval — set for branch_approved AND any
+      // subsequent state. The HQ pool of users is global so the actor stays
+      // the branch manager.
+      if (
+        bucket.status === "branch_approved" ||
+        bucket.status === "approved" ||
+        bucket.status === "picking" ||
+        bucket.status === "packed" ||
+        bucket.status === "shipped" ||
+        bucket.status === "delivered" ||
+        bucket.status === "closed"
+      ) {
+        branchApprovedAt = daysBefore(now, Math.max(0, baseAgeDays - 2));
+        branchApprovedBy = branchManagerByCode.get(branchCode)?.id ?? null;
+      }
+      // Step-2 (HQ Manager) approval — only for fully-approved orders. The
+      // demo HQ user is the seeded `hq.ops@example.nl`; fall back to the
+      // branch manager if HQ isn't seeded yet (e.g. first run before
+      // 3.2.2a's seed update lands).
       if (
         bucket.status === "approved" ||
         bucket.status === "picking" ||
@@ -239,8 +272,9 @@ export async function seedOrders(
         bucket.status === "delivered" ||
         bucket.status === "closed"
       ) {
-        approvedAt = daysBefore(now, Math.max(0, baseAgeDays - 2));
-        approvedBy = branchManagerByCode.get(branchCode)?.id ?? null;
+        approvedAt = daysBefore(now, Math.max(0, baseAgeDays - 3));
+        approvedBy =
+          hqManager?.id ?? branchManagerByCode.get(branchCode)?.id ?? null;
       }
       if (bucket.status === "rejected") {
         rejectionReason = pickOne(rand, [
@@ -284,6 +318,8 @@ export async function seedOrders(
         created_by_user_id: creator.id,
         status: bucket.status,
         submitted_at: submittedAt,
+        branch_approved_at: branchApprovedAt,
+        branch_approved_by_user_id: branchApprovedBy,
         approved_at: approvedAt,
         approved_by_user_id: approvedBy,
         rejection_reason: rejectionReason,
@@ -306,6 +342,8 @@ export async function seedOrders(
     created_by_user_id: r.created_by_user_id,
     status: r.status,
     submitted_at: r.submitted_at,
+    branch_approved_at: r.branch_approved_at,
+    branch_approved_by_user_id: r.branch_approved_by_user_id,
     approved_at: r.approved_at,
     approved_by_user_id: r.approved_by_user_id,
     rejection_reason: r.rejection_reason,
@@ -398,6 +436,8 @@ export async function seedOrders(
       status: r.status,
       created_at: r.created_at,
       submitted_at: r.submitted_at,
+      branch_approved_at: r.branch_approved_at,
+      branch_approved_by_user_id: r.branch_approved_by_user_id,
       approved_at: r.approved_at,
       approved_by_user_id: r.approved_by_user_id,
       total_net_cents: r.total_net_cents,
