@@ -1,5 +1,30 @@
 # Changelog
 
+## [Phase 3.2.2c] — 2026-04-18
+
+### Deploy warning (READ BEFORE MERGING TO PROD)
+
+**After auto-cancel cron deploys, any orders submitted more than 2 working days ago without branch approval will be auto-cancelled on the next cron run (08:00 Europe/Amsterdam). If you have pending orders you want to keep, approve or cancel them manually before deploying 3.2.2c.**
+
+The same applies to step-2 stale orders: any order in `branch_approved` more than 3 working days ago will be auto-cancelled with reservation release. Verify operator awareness before flipping `CRON_SECRET` on in Vercel.
+
+### Added
+- **`src/lib/dates/working-days.ts`** — pure module with `isWorkingDay`, `addWorkingDays`, `workingDaysBetween`. Default tz `Europe/Amsterdam`; `holidays?: Date[]` plumbed through but unwired (Phase 7 polish entry in `BACKLOG.md` covers the NL public-holidays wiring). Vitest suite (15 cases) covers Mon–Fri / weekends / DST boundaries / holidays / round-trip agreement.
+- **`/api/cron/auto-cancel-stale-orders`** — nightly route (SPEC §8.8). Two passes per run:
+  - Step-1 timeout: `status='submitted' AND submitted_at < addWorkingDays(now, -2)` → cancel with audit reason `auto_cancel_no_branch_approval`. No reservations exist yet at step 1.
+  - Step-2 timeout: `status='branch_approved' AND branch_approved_at < addWorkingDays(now, -3)` → cancel with audit reason `auto_cancel_no_hq_approval`. Releases reservations via the same movements + inventory pattern as the manual cancel action.
+  - Optional `CRON_SECRET` Bearer guard (mandatory in production; auto-skipped in local dev + e2e).
+  - Status-guarded UPDATE (`.eq("status", priorStatus)`) so a racing manual approve / cancel wins; the cron silently skips orders that moved out from under it.
+  - Returns `{ ok, now, step1_cutoff, step2_cutoff, candidates, cancelled, reservations_released }` for observability.
+- **`vercel.json`** — schedule `0 6 * * *` UTC = 08:00 CET (winter) / 09:00 CEST (summer). DST drift acknowledged in `BACKLOG.md`.
+- **Playwright e2e** (`tests-e2e/auto-cancel-3-2-2c.spec.ts`) — fixtures inject stale orders at both timeouts, hit the cron route, assert: status flips to `cancelled`, audit row carries the right reason, reservations released for the step-2 path, races are no-ops.
+
+### Changed
+- `docs/ENV.md` documents `CRON_SECRET` (the same env var the paused 3.3.1 branch had — staged here so the rebase is conflict-free).
+
+### Database
+- No migrations.
+
 ## [Phase 3.2.2b] — 2026-04-18
 
 ### Added
