@@ -46,15 +46,80 @@ async function wipeNonSeedOrders(uid: string) {
 }
 
 const TEST_EMAIL = "utr.user1@example.nl";
+// Prefix used for the overdue-invoice fixture so afterAll can wipe just
+// what we created without disturbing demo invoices.
+const FIXTURE_INVOICE_PREFIX = "INV-E2E-CART-";
+
+async function branchIdForUser(uid: string): Promise<string | null> {
+  const { data } = await admin
+    .from("user_branch_roles")
+    .select("branch_id")
+    .eq("user_id", uid)
+    .eq("role", "branch_user")
+    .not("branch_id", "is", null)
+    .maybeSingle();
+  return (data?.branch_id as string | null) ?? null;
+}
+
+/**
+ * Phase 3.1's submit gate (SPEC §8.1 step 4) only fires when the user's
+ * branch has at least one overdue invoice. The demo seed used to put one
+ * on every branch, but seed iterations since then can reshuffle which
+ * branches end up with overdues — and the test silently goes green on a
+ * straight submit instead of exercising the override path.
+ *
+ * Make the precondition explicit: insert a single overdue invoice for
+ * the test's branch right before each test, idempotent. afterAll
+ * removes anything with our `INV-E2E-CART-` prefix.
+ */
+async function ensureOverdueInvoiceForBranch(branchId: string): Promise<void> {
+  const nowIso = new Date().toISOString();
+  // Skip if the branch already has any qualifying overdue (demo invoice
+  // or a leftover fixture from a prior run that wasn't cleaned).
+  const { count } = await admin
+    .from("invoices")
+    .select("id", { head: true, count: "exact" })
+    .eq("branch_id", branchId)
+    .in("status", ["issued", "overdue"])
+    .lt("due_at", nowIso)
+    .is("deleted_at", null);
+  if (count && count > 0) return;
+
+  const issuedAt = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  const dueAt = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const { error } = await admin.from("invoices").insert({
+    invoice_number: `${FIXTURE_INVOICE_PREFIX}${Date.now()}`,
+    branch_id: branchId,
+    issued_at: issuedAt,
+    due_at: dueAt,
+    status: "overdue",
+    total_net_cents: 10000,
+    total_vat_cents: 2100,
+    total_gross_cents: 12100,
+  });
+  if (error) throw error;
+}
+
+async function wipeFixtureInvoices(): Promise<void> {
+  await admin
+    .from("invoices")
+    .delete()
+    .like("invoice_number", `${FIXTURE_INVOICE_PREFIX}%`);
+}
 
 test.beforeEach(async () => {
   const uid = await userId(TEST_EMAIL);
-  if (uid) await wipeNonSeedOrders(uid);
+  if (!uid) return;
+  await wipeNonSeedOrders(uid);
+  const branchId = await branchIdForUser(uid);
+  if (!branchId) throw new Error(`No branch_user assignment for ${TEST_EMAIL}`);
+  await ensureOverdueInvoiceForBranch(branchId);
 });
 
 test.afterAll(async () => {
   const uid = await userId(TEST_EMAIL);
   if (uid) await wipeNonSeedOrders(uid);
+  await wipeFixtureInvoices();
 });
 
 test.describe("Phase 3.1 cart + submit", () => {
@@ -101,7 +166,10 @@ test.describe("Phase 3.1 cart + submit", () => {
     // --- Submit hits the outstanding-invoice block on any seeded branch ---
     await page.getByRole("button", { name: "Submit order" }).click();
 
-    await page.waitForURL(/block=outstanding/, { timeout: 15_000 });
+    // `toHaveURL` polls the URL without depending on the `load` event,
+    // which Server-Action `redirect()` doesn't always fire — see the
+    // longer note before the `waitForURL`-replacement below.
+    await expect(page).toHaveURL(/block=outstanding/, { timeout: 15_000 });
     await expect(page.getByText(/overdue invoice/i)).toBeVisible();
 
     const submitAnyway = page.getByRole("button", { name: "Submit anyway" });
@@ -110,7 +178,13 @@ test.describe("Phase 3.1 cart + submit", () => {
     await expect(submitAnyway).toBeEnabled();
     await submitAnyway.click();
 
-    await page.waitForURL("**/orders", { timeout: 15_000 });
+    // NOTE: `waitForURL` defaults to `waitUntil: "load"`, which does not
+    // fire reliably for SPA navigations that follow a Server Action
+    // `redirect()` — the URL changes via the router but no fresh
+    // window-load event is emitted. `toHaveURL` polls the URL with no
+    // load-event dependency. Same workaround is applied to the
+    // companion test below.
+    await expect(page).toHaveURL(/\/orders(?:[?/]|$)/, { timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "Orders" })).toBeVisible();
 
     // Order row in DB: submitted, real ORD-YYYY-NNNN number.
@@ -152,7 +226,7 @@ test.describe("Phase 3.1 cart + submit", () => {
 
     await page.goto("/cart");
     await page.getByRole("button", { name: "Submit order" }).click();
-    await page.waitForURL(/block=outstanding/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/block=outstanding/, { timeout: 15_000 });
 
     // Type *lowercase* — the input's onChange must uppercase it so the
     // state matches the CSS text-transform; button must enable.
@@ -165,7 +239,9 @@ test.describe("Phase 3.1 cart + submit", () => {
     await expect(submitAnyway).toBeEnabled();
     await submitAnyway.click();
 
-    await page.waitForURL("**/orders", { timeout: 15_000 });
+    // See note in the previous test for why `toHaveURL` replaces
+    // `waitForURL` here.
+    await expect(page).toHaveURL(/\/orders(?:[?/]|$)/, { timeout: 15_000 });
 
     // Audit payload records the override.
     const { data: orderRow } = await admin
