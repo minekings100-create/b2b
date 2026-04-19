@@ -79,6 +79,19 @@ Per-user opt-in/out for email + in-app notifications, plus an HMAC-signed unsubs
 - **Email footer:** `src/lib/email/templates/_layout.ts` `htmlLayout` + `textFooter` inject per-recipient unsubscribe + prefs links using `{{UNSUBSCRIBE_URL}}` and `{{PREFS_URL}}` placeholders. `notify()` substitutes them at send time so templates stay pure (one render per trigger).
 - **Company identity:** `src/config/company.ts` is the single import site for legal name, KvK, addresses, support email, website. `[PLACEHOLDER]` values are listed in `docs/CHANGELOG.md` under "pre-production fill-ins".
 
+### Picking & packing (Phase 4)
+
+Packer-first two-route workflow:
+
+- **`/pack`** — queue of `approved` + `picking` orders, FIFO by `approved_at`. Admins see cross-branch; packers see the same list (RLS already narrows to fulfilment-stage rows).
+- **`/pack/[orderId]`** — workspace with a 64 px auto-focused scan input, line list sorted by `inventory.warehouse_location`, pallet side panel with "New pallet" / "Close pallet" / "Label PDF" affordances, and a "Complete pack" button gated by (all lines fully packed ∧ no pallet still open).
+
+Server actions live in `src/lib/actions/packing.ts`. Scan looks up `product_barcodes.barcode` → `product_id`, finds an under-packed line, and bumps `order_items.quantity_packed` by `unit_multiplier`. First pack action on an `approved` order status-flips it to `picking`; `completeOrderPack` flips `picking → packed` with a full inventory accounting pass (`inventory_movements` with reason `packed`, per-line decrement of both `quantity_on_hand` and `quantity_reserved`). Every mutation writes an `audit_log` row (`pack_increment`, `pack_overpack`, `pallet_closed`, `order_packed`).
+
+Pallet numbering goes through `allocate_sequence('pallet_<year>')` (foundation migration 4's `SECURITY DEFINER` allocator) with format `PAL-YYYY-NNNNN` per SPEC §6.
+
+PDFs render server-side via `@react-pdf/renderer` at `/api/pdf/pick-list/[orderId]` and `/api/pdf/pallet-label/[palletId]`. Both are `runtime: "nodejs"` (react-pdf needs fs-style APIs that aren't in the Edge runtime) and role-gated to packer / administration / super_admin. The pallet label embeds a QR of the pallet UUID so a future branch-receiving scan (Phase 4.2) lands on a unique row.
+
 ## Testing
 - **Vitest** — unit tests (`tests/lib/…`) and an RLS harness (`tests/rls/…`) that proves cross-branch reads are denied.
 - **Playwright** — happy-path e2e (`tests-e2e/`) at 1440 / 768 / 375 viewports. `webServer` config auto-starts the dev server.

@@ -1,5 +1,53 @@
 # Changelog
 
+## [Phase 4] — 2026-04-19 — picking & packing
+
+End-to-end packer workflow: pack queue → pick list → scan or manual pack → pallet management → complete pack with inventory accounting. Shipping (§8.4) and branch receiving (§8.5) remain separate phases.
+
+### Added — packer routes
+- **`src/app/(app)/pack/page.tsx`** — pack queue, `approved` + `picking` orders sorted by oldest `approved_at`. FIFO for the packer; admins / super_admin see the same list cross-branch.
+- **`src/app/(app)/pack/[orderId]/page.tsx`** — pick & pack workspace. Two-column on desktop (scan + line list on the left, pallet panel on the right), stacked on tablet/mobile. Read-only when the order's status is past `picking` (serves as a printable summary). Packer-first density per SPEC §4: 64 px scan input, 48 px action buttons.
+- **Inline detail panel** on each pick-list row (per the BACKLOG entry captured 2026-04-17 + SPEC §8.3 step 3). One row expanded at a time; shows warehouse location prominently + barcode text.
+
+### Added — data + actions
+- **`src/lib/db/packing.ts`** — `fetchPackQueue()` + `fetchPickList(orderId)`. Pick list sorts lines by `inventory.warehouse_location` (nulls last) for an efficient walking path and loads the primary barcode per product.
+- **`src/lib/actions/packing.ts`** — five server actions, all role-gated to `packer / administration / super_admin`:
+  - `scanBarcode` — barcode → product → unsatisfied line → increment `quantity_packed` by `unit_multiplier`. Over-pack returns `needs_confirm` carrying `(order_item_id, delta, overpack_by)`; the UI re-submits via `manualPack(…, force=true)` on confirm.
+  - `manualPack` — explicit `(order_item_id, quantity)`; same over-pack discipline.
+  - `openNewPallet` — creates a fresh open pallet; numbering via `allocate_sequence('pallet_<year>')` → `PAL-YYYY-NNNNN` (SPEC §6).
+  - `closePallet` — open → packed, stamps `packed_at` + `packed_by_user_id`. Refuses to close empty pallets.
+  - `completeOrderPack` — `picking → packed` with status-guarded update. Validates every approved line is fully packed AND no pallet is still open. Writes `inventory_movements` (reason `packed`, delta `-qty_packed`) and decrements `inventory.quantity_on_hand` + `quantity_reserved` per line. Revalidates `/pack`, `/pack/[orderId]`, `/orders/[orderId]`.
+- **Audit trail** — every mutation writes one `audit_log` row (`pack_increment`, `pack_overpack`, `pallet_closed`, `order_packed`).
+
+### Added — PDFs
+- **Pallet label** (`src/lib/pdf/pallet-label.tsx` + `/api/pdf/pallet-label/[palletId]`) — A6 portrait, QR of pallet UUID, pallet number, order + branch metadata, packed-by/at. Renders via `@react-pdf/renderer` on the Node runtime.
+- **Pick list** (`src/lib/pdf/pick-list.tsx` + `/api/pdf/pick-list/[orderId]`) — A4 portrait, company masthead, order + branch header, SKU / Description / Location / Qty table sorted by warehouse location.
+- Both routes: role-gated (packer / admin / super_admin), `Content-Type: application/pdf`, `Content-Disposition: inline`, `Cache-Control: no-store`.
+
+### Changed
+- **Dependencies** — added `@react-pdf/renderer`, `qrcode`, `@types/qrcode`. No Puppeteer / headless Chromium dependency; react-pdf keeps the footprint small.
+
+### Tests
+- **`tests-e2e/pack-phase-4.spec.ts`** — 4 cases: full happy path (scan × 2 → close pallet → complete → DB assertions on status / inventory / movements / audit); pick-list PDF responds with `application/pdf`; inline detail panel shows barcode + location; non-packer is redirected away from `/pack`.
+- Vitest suite unchanged (84/84) — packing logic is DB-integrated and covered via the Playwright spec.
+
+### Decisions made without asking (per the gate-on-PR discipline)
+- **Phase 4 scope = picking + packing only.** §8.4 (shipping) and §8.5 (receiving) are distinct workflows; building them in one PR would double the surface and delay the pack demo. Shipping will ship next.
+- **Single continuous workflow rather than separate Pick / Pack steps.** SPEC §8.3 treats them as one activity ("Picking & Packing"); the packer doesn't physically distinguish "now I'm picking" from "now I'm packing" — they scan, set down, repeat.
+- **Auto-flip `approved → picking` on first pack action.** No explicit "Start picking" button. Keeps the packer's click budget small.
+- **Implicit pallet auto-create on first pack.** SPEC §8.3 allows either "currently open pallet for this order, or a new pallet". The UI still exposes "New pallet" as an explicit button.
+- **Over-pack gated behind a confirm strip, not silently accepted.** SPEC §8.3 says "Over-scan triggers confirm dialog" — we use an inline strip (no modal) that auto-focuses the confirm button so a scanner Enter keeps the flow keyboard-driven.
+- **PDF via `@react-pdf/renderer`, not Puppeteer.** SPEC §2 leaves the choice open. react-pdf ships as a pure-JS npm package — no headless-Chromium in the Vercel bundle, no runtime fetch of a binary. Cost: no CSS parity, but the PDFs are small tables + a label, not app screens.
+- **Pallet numbering format `PAL-YYYY-NNNNN`.** Matches SPEC §6's example (`PAL-2026-00042`). Yearly sequence via `allocate_sequence('pallet_<year>')` — reuses the existing `numbering_sequences` table + `SECURITY DEFINER` allocator.
+- **Complete-pack requires all pallets closed.** Packers may forget to close the last pallet; the server blocks completion with a clear reason and the UI mirrors the same guard.
+- **Read-only view post-pack.** Once an order is `packed`, `shipped`, `delivered`, etc., the `/pack/[orderId]` page still renders — just without scan input / Complete button — so the packer can re-print labels or the pick list.
+
+### Follow-ups for later phases
+- **Phase 4.1 — shipping (§8.4):** Admin assigns pallets to a `shipment`, carrier + tracking, `packed → shipped`, packing slip PDF, auto-create draft invoice.
+- **Phase 4.2 — branch receiving (§8.5):** Branch user scans pallet QR on arrival → pallet → `delivered`; order `delivered` when all pallets received; auto-close after 14 days.
+- **Phase 7 polish:** no-product-thumbnail path in the inline detail panel (SPEC §8.3 mentions a "small product thumbnail" as optional; the schema has no thumbnail column yet).
+- **Phase 7 polish:** `completeOrderPack` does a best-effort linear sequence of `inventory_movements` insert + per-row inventory updates, not a single DB transaction (Supabase JS has no transaction primitive). The audit row + movement rows give a reconcilable trail, but a failure between those writes leaves inventory briefly inconsistent. Low risk (best-effort writes to a single Postgres instance rarely fail partway); revisit when invoicing needs stricter cross-table atomicity.
+
 ## [Phase 3.3.3a] — 2026-04-19 — notification preferences + unsubscribe + minimal legal wiring
 
 ### Added — schema + config

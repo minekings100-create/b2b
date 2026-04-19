@@ -30,7 +30,7 @@ Phase 3 splits into 3.1 / 3.2 / 3.2.1 / 3.2.2{a,b,c} / 3.3.{1,2,3} (already ship
 | 3.3.2 | In-app notification centre (bell + dropdown) | 🟡 PR open (this branch) |
 | 3.3.3 | Email preferences + polished templates + unsubscribe + legal | ⚪ planned |
 | **3.4** | **Order edit (pre-approval)** | ⚪ **planned (NEW, accepted 2026-04-19)** |
-| 4 | Picking & packing (was next after 3.3) | ⚪ planned |
+| 4 | Picking & packing | 🟡 in PR — scope: pick queue, scan / manual pack, pallet management, pallet label + pick list PDFs. Shipping (§8.4) + receiving (§8.5) deferred to 4.1 / 4.2. |
 | 5 | Invoicing | ⚪ planned |
 | 6 | Online payment & RMA | ⚪ planned |
 | 7 | Polish (incl. sortable headers, NL holidays, DST cron, archive/restore) | ⚪ planned |
