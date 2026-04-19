@@ -7,6 +7,7 @@ import {
   Home,
   Inbox,
   Package,
+  Settings,
   ShoppingBag,
   ShoppingCart,
   Truck,
@@ -160,6 +161,13 @@ export function AppSidebar({
         ) : null}
       </SidebarContent>
       <SidebarFooter>
+        <SidebarItem
+          as="a"
+          href="/settings/notifications"
+          icon={<Settings className="h-4 w-4" />}
+          label="Settings"
+          active={is("/settings")}
+        />
         <UserMenu email={email} />
       </SidebarFooter>
     </Sidebar>

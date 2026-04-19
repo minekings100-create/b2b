@@ -64,6 +64,21 @@ The top bar is the slot for **global controls** — anything that should be reac
 - Mark-as-read goes through Server Actions (`src/lib/actions/notifications.ts`); RLS gates updates to the caller's own rows. No `audit_log` per mark — high-volume read-state mutation; the underlying entity changes are already audited.
 - Pure consumer of 3.3.1's `notifications` rows. Headline copy lives in `src/lib/notifications/headline.ts` (pure module — pinned by 8 vitest cases). When 3.3.1 / 3.3.3 add new trigger types, add a `case` to `describeNotification` and a render function in `src/lib/email/templates/index.ts` — they're peers.
 
+### Notification preferences + unsubscribe (3.3.3a)
+
+Per-user opt-in/out for email + in-app notifications, plus an HMAC-signed unsubscribe link in every email.
+
+- **Storage:** `users.notification_preferences` is a single JSONB column. Shape: `{ state_changes: { email, in_app }, admin_alerts: { email, in_app } }`. Migration `20260419000001` adds the column with an everything-on default (opt-out model).
+- **Taxonomy:** `src/lib/email/categories.ts` is the single source of truth. Closed union `NotificationTriggerType` × `TRIGGER_CATEGORY` map × `FORCED_EMAIL_TRIGGERS` whitelist. `notify()`'s `type` parameter is narrowed to this union so a new trigger without a registered category fails to typecheck.
+- **Filter:** `notify()` bulk-reads prefs for every recipient, inserts `notifications` rows only for in_app-on recipients, and sends email for email-on OR forced triggers. On a pref-read hiccup it falls back to the permissive default — over-notify beats silent compliance drops.
+- **Forced override:** `FORCED_EMAIL_TRIGGERS` (currently `["order_submitted_while_overdue"]`) bypasses the email preference only — in-app stays toggleable. Email is the durable compliance record, the bell is ephemeral. Expanding the list is a one-way ratchet; the bar is financial/compliance impact, not operational inconvenience.
+- **Unsubscribe link:** `src/lib/email/unsubscribe-token.ts` signs `(user_id, category, issued_at)` with `UNSUBSCRIBE_TOKEN_SECRET` (HMAC-SHA256). 60-day validity, 5-min future skew. Not single-use; `/unsubscribe`'s server action is idempotent.
+- **Unsubscribe page:** `src/app/unsubscribe/{page.tsx,success/page.tsx,actions.ts}` — public (no session), token verifies authority. Any failure funnels to one "expired or invalid" UX. The server action flips the email bit via the service-role admin client + writes an `audit_log` row.
+- **Settings page:** `src/app/(app)/settings/notifications/page.tsx` renders the 2×2 grid (categories × channels). Forced email cells render disabled + a static `FORCED_DISCLOSURE_TEXT` note; server-side preservation in `savePreferences` guards against a crafted POST flipping a forced bit.
+- **Audit log:** Both the unsubscribe flow and the settings page write one `audit_log` row per changed save with `action='notification_preferences_updated'`, full `before_json` / `after_json` preferences, and a `source` discriminator (`'email_link'` vs `'settings_page'`). Idempotent: skipped when nothing changed.
+- **Email footer:** `src/lib/email/templates/_layout.ts` `htmlLayout` + `textFooter` inject per-recipient unsubscribe + prefs links using `{{UNSUBSCRIBE_URL}}` and `{{PREFS_URL}}` placeholders. `notify()` substitutes them at send time so templates stay pure (one render per trigger).
+- **Company identity:** `src/config/company.ts` is the single import site for legal name, KvK, addresses, support email, website. `[PLACEHOLDER]` values are listed in `docs/CHANGELOG.md` under "pre-production fill-ins".
+
 ## Testing
 - **Vitest** — unit tests (`tests/lib/…`) and an RLS harness (`tests/rls/…`) that proves cross-branch reads are denied.
 - **Playwright** — happy-path e2e (`tests-e2e/`) at 1440 / 768 / 375 viewports. `webServer` config auto-starts the dev server.

@@ -70,6 +70,14 @@ Every env var used in this project is documented here (SPEC §13 step 10).
 - **Used by:** `/api/cron/auto-cancel-stale-orders` (3.2.2c) and `/api/cron/awaiting-approval` (3.3.1). Future cron routes (Phase 5 overdue invoices) reuse the same secret.
 - **Exposed to browser:** No.
 
+### `UNSUBSCRIBE_TOKEN_SECRET`
+- **Purpose:** HMAC-SHA256 signing key for unsubscribe-link tokens embedded in every outbound email (3.3.3a). Each rendered email carries a signed `(user_id, category, issued_at)` token; the `/unsubscribe` route verifies the signature before showing the confirmation page.
+- **How to generate:** `openssl rand -base64 32`. Any high-entropy value works; 256 bits of entropy is plenty for HMAC-SHA256.
+- **Default if unset:** `src/lib/email/unsubscribe-token.ts` throws on every email render. The app will not start serving outbound email until this is set.
+- **Rotation policy:** Rotating this value **invalidates every in-flight token globally**. Recipients holding old email links will get the "invalid or expired link" page instead of the unsubscribe confirmation. Accept this trade-off — the idempotent `/settings/notifications` page is always available as a fallback. Rotate if you suspect the secret has leaked.
+- **Separate from `CRON_SECRET`:** Intentionally a different variable so you can rotate one without invalidating the other.
+- **Exposed to browser:** No (signing is server-side only).
+
 ### `SUPABASE_DB_PASSWORD`
 - **Purpose:** Direct database password for connecting Postgres over SSL (used by `supabase db push` when run non-interactively, or by `psql`).
 - **Where to find:** Supabase dashboard → Project Settings → Database → Database Password (reveal or reset).

@@ -1,10 +1,19 @@
 import "server-only";
 
+import { COMPANY } from "@/config/company";
+
 /**
- * Minimal HTML wrapper for sub-milestone 3.3.1 emails. Polished branded
- * layout (logo, footer, unsubscribe, responsive table grid) lands in 3.3.3
- * — keep this file boring on purpose so 3.3.3's review doesn't churn this
- * file and the trigger wiring at the same time.
+ * Minimal HTML wrapper for 3.3.x emails. Polished branded layout
+ * (logo, responsive table grid, per-template hero) lands in 3.3.3b
+ * — keep THIS file boring on purpose so 3.3.3b's review can churn
+ * the visual layer without having to relitigate preference plumbing.
+ *
+ * 3.3.3a adds a small legal + opt-out footer: company name, manage-
+ * preferences link, unsubscribe link. The unsubscribe and prefs links
+ * embed `{{UNSUBSCRIBE_URL}}` / `{{PREFS_URL}}` placeholders that
+ * `notify()` replaces per recipient — the template layer stays pure
+ * (no recipient state leaks in) and the one-render-per-trigger
+ * optimization is preserved.
  */
 
 function escapeHtml(s: string): string {
@@ -39,11 +48,28 @@ export function htmlLayout(opts: {
 <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;padding:24px;font-size:14px;line-height:1.5;">
 ${bodyHtml}
 ${cta}
-<hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0 16px;" />
-<p style="margin:0;font-size:12px;color:#71717a;">Bessems Marketing Service · Internal procurement platform</p>
+<hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0 12px;" />
+<p style="margin:0 0 6px;font-size:12px;color:#71717a;"><strong>${escapeHtml(COMPANY.legal_name)}</strong> · Internal procurement platform</p>
+<p style="margin:0;font-size:11px;color:#9ca3af;"><a href="{{PREFS_URL}}" style="color:#9ca3af;text-decoration:underline;">Manage email preferences</a> · <a href="{{UNSUBSCRIBE_URL}}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a></p>
 </div>
 </body>
 </html>`;
+}
+
+/**
+ * Plaintext footer. Appended by `notify()` per recipient (not by the
+ * templates themselves) so a zero-change footer update doesn't
+ * require touching all 10 render functions. Placeholders are replaced
+ * per recipient by `notify()`.
+ */
+export function textFooter(): string {
+  return [
+    "—",
+    `${COMPANY.legal_name} · Internal procurement platform`,
+    "",
+    "Manage preferences: {{PREFS_URL}}",
+    "Unsubscribe: {{UNSUBSCRIBE_URL}}",
+  ].join("\n");
 }
 
 export const escape = escapeHtml;
