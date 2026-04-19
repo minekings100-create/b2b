@@ -74,7 +74,27 @@ Similar shape to Phase 1.5 (schema-heavy scaffolding) plus a feature PR on top. 
 
 ## Phase 3 — Ordering & approval
 
-_(none yet)_
+### Sub-milestone 3.3.3b — polished email templates + /privacy + /cookies + full legal footer
+_Captured: 2026-04-19. Deferred from the original 3.3.3 split (3.3.3a shipped the functional layer)._
+
+3.3.3a left emails functional but visually plain: minimal HTML wrapper, single-line legal footer with `[PLACEHOLDER]` company fields, no `/privacy` or `/cookies` page wired. Real value of polish comes near demo / launch, not mid-MVP — defer until the catalogue → pack → invoice loop is closed and we're approaching first-customer onboarding.
+
+**What ships when picked up:**
+- **Branded email templates.** Logo, responsive table grid, consistent accent palette tied to design tokens (replace hard-coded `#4f46e5`), per-template hero, plaintext mirror that matches the HTML structure. Update `_layout.ts` + every render function in `templates/index.ts`.
+- **Address block in the footer.** Once the `[PLACEHOLDER]` fields in `src/config/company.ts` (`kvk`, `btw_number`, `visiting_address`, `postal_address`, `phone`) have real values, render them in the footer block. The "pre-production fill-ins" CHANGELOG section already lists what's missing.
+- **`/privacy` page.** GDPR boilerplate appropriate for an internal procurement tool with Supabase + Vercel as data processors. No 3rd-party trackers to disclose. Linked from the email footer + every authenticated page footer.
+- **`/cookies` page.** Same treatment — internal session cookie only, no analytics, no marketing pixels. Linked from same places.
+- **`testRenderAll()` snapshot fixture** so future template edits surface visual diffs in CI rather than only via manual smoke.
+
+**Why deferred:**
+- Functional emails already work end-to-end (3.3.3a). The polish is visual, not behavioural.
+- Real legal copy (privacy / cookies) needs human review near launch, not now.
+- Address block waits on the user supplying the real values — currently `[PLACEHOLDER]`.
+- Template churn here would make the eventual visual-review PR noisier than necessary.
+
+**Dependency:** none. Can ship any time after the company fill-in values are supplied.
+
+## Phase 4 — Picking & packing
 
 ## Phase 4 — Picking & packing
 
