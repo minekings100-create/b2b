@@ -48,12 +48,34 @@ export function HqApproveForm({
           <TableBody>
             {items.map((it) => {
               const qty = it.quantity_approved ?? 0;
+              // Phase 7a — inline stock preview (BACKLOG entry "HQ
+              // approval: inline stock preview"). on_hand and reserved
+              // come from the order-detail loader; the BM has already
+              // reserved this order's qty at step 1, so the post-HQ
+              // value is just on_hand minus the reservation already
+              // booked. We render the *delta* — what physically leaves
+              // the warehouse if HQ approves — so the wording matches
+              // the user's mental model.
+              const onHand = it.on_hand;
+              const reserved = it.reserved;
+              const afterApproval = onHand - qty;
               return (
                 <TableRow key={it.id}>
                   <TableCell className="font-numeric text-fg-muted">
                     {it.sku}
                   </TableCell>
-                  <TableCell>{it.name}</TableCell>
+                  <TableCell>
+                    <div>{it.name}</div>
+                    {qty > 0 ? (
+                      <p
+                        className="mt-0.5 font-numeric text-[11px] text-fg-subtle"
+                        data-testid={`hq-stock-preview-${it.sku}`}
+                      >
+                        on-hand {onHand} → {afterApproval} after pack
+                        {reserved > 0 ? ` (${reserved} reserved now)` : ""}
+                      </p>
+                    ) : null}
+                  </TableCell>
                   <TableCell numeric>{it.quantity_requested}</TableCell>
                   <TableCell numeric>{qty}</TableCell>
                   <TableCell numeric>

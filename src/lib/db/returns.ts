@@ -22,6 +22,21 @@ export const RETURN_STATUSES = [
   "closed",
 ] as const satisfies readonly Status[];
 
+export const RETURNS_SORTABLE_COLUMNS = [
+  "rma_number",
+  "branch",
+  "status",
+  "requested_at",
+] as const;
+export type ReturnsSortColumn = (typeof RETURNS_SORTABLE_COLUMNS)[number];
+
+const RETURNS_SORT_DB_COLUMN: Record<ReturnsSortColumn, string> = {
+  rma_number: "rma_number",
+  branch: "branch_id",
+  status: "status",
+  requested_at: "requested_at",
+};
+
 export type ReturnListRow = {
   id: string;
   rma_number: string;
@@ -38,6 +53,7 @@ export type ReturnListRow = {
 
 export async function fetchVisibleReturns(
   statusFilter?: Status | null,
+  sort?: { column: ReturnsSortColumn; direction: "asc" | "desc" } | null,
 ): Promise<ReturnListRow[]> {
   const supabase = createClient();
   let q = supabase
@@ -52,9 +68,16 @@ export async function fetchVisibleReturns(
       `,
     )
     .is("deleted_at", null)
-    .order("requested_at", { ascending: false })
     .limit(200);
   if (statusFilter) q = q.eq("status", statusFilter);
+  if (sort) {
+    q = q.order(RETURNS_SORT_DB_COLUMN[sort.column], {
+      ascending: sort.direction === "asc",
+      nullsFirst: false,
+    });
+  } else {
+    q = q.order("requested_at", { ascending: false });
+  }
   const { data, error } = await q;
   if (error) throw new Error(`fetchVisibleReturns: ${error.message}`);
 

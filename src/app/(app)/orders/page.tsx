@@ -18,9 +18,13 @@ import { cn } from "@/lib/utils";
 import { getUserWithRoles } from "@/lib/auth/session";
 import {
   fetchVisibleOrders,
+  ORDERS_SORTABLE_COLUMNS,
   type OrderStatusFilter,
+  type OrdersSortColumn,
 } from "@/lib/db/orders-list";
 import { formatCents } from "@/lib/money";
+import { parseSortParam } from "@/lib/url/sort";
+import { SortableHeader } from "@/components/app/sortable-header";
 import { StatusFilterChips } from "./_components/status-filter-chips";
 
 export const metadata = { title: "Orders" };
@@ -53,7 +57,7 @@ const StatusParam = z
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: { status?: string };
+  searchParams: { status?: string; sort?: string; dir?: string };
 }) {
   const session = await getUserWithRoles();
   if (!session) redirect("/login");
@@ -64,9 +68,18 @@ export default async function OrdersPage({
     ? parsedStatus.data
     : undefined;
 
-  const orders = await fetchVisibleOrders(
-    activeStatus ? { statuses: [activeStatus] } : undefined,
+  const sort = parseSortParam<OrdersSortColumn>(
+    { sort: searchParams.sort, dir: searchParams.dir },
+    ORDERS_SORTABLE_COLUMNS,
+    null,
   );
+
+  const orders = await fetchVisibleOrders({
+    statuses: activeStatus ? [activeStatus] : undefined,
+    sort,
+  });
+
+  const preserve = { status: activeStatus ?? null };
 
   return (
     <>
@@ -102,15 +115,65 @@ export default async function OrdersPage({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[160px]">Number</TableHead>
-                  <TableHead className="w-[90px]">Branch</TableHead>
+                  <SortableHeader
+                    basePath="/orders"
+                    column="order_number"
+                    current={sort}
+                    preserveParams={preserve}
+                    className="w-[160px]"
+                  >
+                    Number
+                  </SortableHeader>
+                  <SortableHeader
+                    basePath="/orders"
+                    column="branch"
+                    current={sort}
+                    preserveParams={preserve}
+                    className="w-[90px]"
+                  >
+                    Branch
+                  </SortableHeader>
                   <TableHead>Created by</TableHead>
                   <TableHead>Branch-approved by</TableHead>
                   <TableHead>HQ-approved by</TableHead>
-                  <TableHead className="w-[130px]">Status</TableHead>
-                  <TableHead className="w-[120px]">Submitted</TableHead>
-                  <TableHead className="w-[70px] text-right">Lines</TableHead>
-                  <TableHead className="w-[110px] text-right">Total</TableHead>
+                  <SortableHeader
+                    basePath="/orders"
+                    column="status"
+                    current={sort}
+                    preserveParams={preserve}
+                    className="w-[130px]"
+                  >
+                    Status
+                  </SortableHeader>
+                  <SortableHeader
+                    basePath="/orders"
+                    column="submitted_at"
+                    current={sort}
+                    preserveParams={preserve}
+                    className="w-[120px]"
+                  >
+                    Submitted
+                  </SortableHeader>
+                  <SortableHeader
+                    basePath="/orders"
+                    column="item_count"
+                    current={sort}
+                    preserveParams={preserve}
+                    align="right"
+                    className="w-[70px]"
+                  >
+                    Lines
+                  </SortableHeader>
+                  <SortableHeader
+                    basePath="/orders"
+                    column="total_gross_cents"
+                    current={sort}
+                    preserveParams={preserve}
+                    align="right"
+                    className="w-[110px]"
+                  >
+                    Total
+                  </SortableHeader>
                 </TableRow>
               </TableHeader>
               <TableBody>

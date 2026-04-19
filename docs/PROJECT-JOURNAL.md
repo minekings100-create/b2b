@@ -33,7 +33,8 @@ Phase 3 splits into 3.1 / 3.2 / 3.2.1 / 3.2.2{a,b,c} / 3.3.{1,2,3} (already ship
 | 4 | Picking & packing | 🟡 in PR — scope: pick queue, scan / manual pack, pallet management, pallet label + pick list PDFs. Shipping (§8.4) + receiving (§8.5) deferred to 4.1 / 4.2. |
 | 5 | Invoicing | 🟡 in PR — createDraftInvoiceFromOrder / issueInvoice / markInvoicePaid / cancelInvoice admin actions; A4 invoice PDF; `/invoices` list + `/invoices/[id]` detail; order-detail integration; `invoice_issued` + `invoice_overdue_reminder` notifications; nightly overdue cron at 02:00 Europe/Amsterdam (DST drift tracked) with idempotent reminder ladder (7/14/30 days). No migration — reused 1.5 schema. |
 | 6 | Online payment & RMA | 🟡 in PR — Mollie adapter (mock transport) + pay-button flow + webhook handler; `/mollie-mock/checkout`; full RMA state machine (requested→approved/rejected; approved→received with per-item restock + replace; received→closed); replacement-order auto-creation at approved; 4 RMA notification types; no migration (1.5 schema reused). Money resolutions (refund / credit_note) persisted but not executed — follow-up PR. |
-| 7 | Polish (incl. sortable headers, NL holidays, DST cron, archive/restore) | ⚪ planned |
+| 7a | Polish — role dashboards + sortable headers + HQ stock preview | 🟡 in PR — `/dashboard` role components (5 roles incl. new HQ slot), `<StatCard>` + `<RecentOrdersPanel>` primitives, dashboard query module, URL-driven `<SortableHeader>` wired into `/orders`/`/invoices`/`/returns`, HQ inline `on-hand X → Y after pack` preview. No migration. |
+| 7b | Polish (deferred from 7a) — NL holidays, DST cron, archive/restore, audit-log viewer, reports, accessibility audit, 90-day notifications cleanup cron | ⚪ planned (split out of 7a per scope decision in 7a CHANGELOG) |
 
 ## Numbering canon
 

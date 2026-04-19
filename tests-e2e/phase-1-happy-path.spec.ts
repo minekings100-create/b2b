@@ -17,7 +17,9 @@ test.describe("Phase 1 happy path", () => {
   test("branch user lands on their dashboard", async ({ page }) => {
     await signIn(page, "ams.user1@example.nl");
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText("No recent orders")).toBeVisible();
+    // Phase 7a replaced the empty-state stub with stat cards. Assert
+    // the branch-user trio renders.
+    await expect(page.getByTestId("stat-open-orders")).toBeVisible();
   });
 
   test("branch manager sees the Approvals link", async ({ page }) => {

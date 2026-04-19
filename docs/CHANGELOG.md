@@ -1,5 +1,66 @@
 # Changelog
 
+## [Phase 7a] — 2026-04-20 — polish: dashboards + sortable headers + HQ stock preview
+
+Phase 7 split — see "Decisions" below for the 7a / 7b cut. This PR ships the user-visible polish surface; infra-heavy items (NL holidays, DST cron, archive/restore, audit-log viewer, reports, accessibility audit, doc refresh) and the destructive 90-day notifications-cleanup cron stay in 7b.
+
+### Role dashboards
+- Replaces the `/dashboard` empty-state stubs with role-aware data.
+- New shared primitives: `<StatCard>` + `<StatCardGrid>` (tokens-only, 1/2/4 column responsive grid) and `<RecentOrdersPanel>` (compact 5-row table).
+- New DB module `src/lib/db/dashboard.ts` — pure read helpers (`countOrdersByStatus`, `sumInvoicesByStatus`, `sumMtdPaid`, `recentOrders`, `recentApprovedForPacking`, `recentBranchApprovedForHq`). All queries run under the user's session client so RLS handles branch + role scoping.
+- Per-role dashboards:
+  - **Branch user** — stat trio (open orders, open invoices, overdue) + recent orders.
+  - **Branch manager** — pending-approvals (warning emphasis) + in-flight + open invoices + overdue + recent activity.
+  - **HQ Manager** — awaiting-HQ (warning) + awaiting-branch + open invoices + overdue + recent branch_approved queue. Also new — HQ wasn't routed to its own dashboard before; it fell through to the branch-user view.
+  - **Packer** — to-pack + in-picking + recent pack queue.
+  - **Admin** — cross-branch quartet (orders in flight, open invoices, overdue, MTD paid) + recent orders.
+- Dashboard role selector in `src/app/(app)/dashboard/page.tsx` learned `hq` (slots between admin and branch_manager).
+
+### Sortable column headers
+- New URL-driven primitive `<SortableHeader>` + `parseSortParam` helper (`src/lib/url/sort.ts` + `src/components/app/sortable-header.tsx`). Click cycles asc → desc → reset (drops the params) per BACKLOG entry "Sortable column headers on order tables".
+- `?sort=<col>&dir=asc|desc` Zod-parsed at the page trust boundary against a per-page enum of allowed columns.
+- Wired into `/orders`, `/invoices`, `/returns`. Preserves existing filter params (`?status=…`) across sort clicks.
+- Item-count sort on `/orders` is post-fetch (PostgREST can't order by an aggregate over an embedded table); branch sort uses `branch_id` ordering at the DB layer (close enough to alphabetical via seed order; Phase 7b can add a proper join sort).
+- Each list query keeps its hard `limit(200)` regardless of sort — pagination is a separate Phase 7 entry.
+
+### HQ approval inline stock preview
+- BACKLOG entry "HQ approval: inline stock preview" lands inside the existing `<HqApproveForm>`. Per line: `on-hand X → Y after pack (Z reserved now)` in muted small text under the product name.
+- Pure read + render — no schema change, no action change. Uses `OrderDetailLine.on_hand` + `.reserved` already loaded by `fetchOrderDetail`.
+
+### Decisions made without asking — Phase 7 split
+**In scope (this PR, Phase 7a):**
+- Role dashboards (5 roles).
+- Sortable headers (`/orders`, `/invoices`, `/returns`).
+- HQ inline stock preview.
+
+**Deferred to Phase 7b (each item gets its own small PR):**
+- 90-day notifications cleanup cron (DESTRUCTIVE — paused per gate rules).
+- NL public-holidays config + admin UI (new schema, plumb into working-days helper).
+- DST-aware cron splitting (touches existing cron schedules).
+- Archive / Restore UX pattern (cross-cutting; affects products, categories, branches, users).
+- Reports (needs design + data scope).
+- Low-stock alerts.
+- Audit-log viewer (admin tool).
+- Accessibility audit pass (broad).
+- English copy review (broad).
+- Documentation refresh (broad).
+
+Why split: the 7b items are infrastructure-heavy and benefit from focused review. Lumping them into one PR would slow down 7a's user-visible improvements + force PAUSE for the cleanup cron's destructive deletion before the dashboards even land.
+
+**Other in-PR decisions:**
+- **HQ stock preview phrasing** — "after pack" rather than "after approval". Approving doesn't move stock; packing does. The reservation already exists at step 2, so the on-hand minus approved-qty is what the warehouse will physically see leave when packed.
+- **`/orders` table grew an `approved_at` column** in `OrderSummary` so HQ-approved-at sort works without a refetch — not yet displayed in the table itself (kept the 9-col layout).
+- **Sortable-headers v1 is read-only state on click** — the cycle resets to default rather than persisting on every list visit. Matches the BACKLOG spec exactly.
+
+### Tests
+- **Vitest** 85/85 (unchanged — dashboards + sort are read-path; covered via Playwright).
+- **Playwright** new spec `tests-e2e/phase-7a-polish.spec.ts` — 9 cases: 5 dashboard role checks (3 viewports per CLAUDE.md since dashboards touch responsive grid breakpoints) + 3 sort-cycle cases (desktop-only via `test.skip` against the project name) + 1 HQ stock preview check (desktop-only).
+
+### Follow-ups
+- **Phase 7b** items listed above.
+- **Sortable headers on `/approvals`** — same pattern, same primitive. Skipped this PR because the approvals queue is already cross-tab and would need the sort to scope per-tab.
+- **Branch sort by branch_code** — currently sorts by `branch_id`. Acceptable for v1 (seed order matches code order); a proper join sort or denormalised `branch_code` on `orders` is a Phase 7b polish item.
+
 ## [Phase 6] — 2026-04-20 — Mollie (mock) payments + RMA
 
 End-to-end online-payment UX via an adapter-pattern Mollie transport (mock in dev, real Mollie when credentials land) + full RMA state machine minus the money resolutions. Refund / credit_note resolutions are recorded but NOT executed this PR — explicit follow-up documented below.

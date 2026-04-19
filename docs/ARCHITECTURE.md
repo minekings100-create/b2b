@@ -40,6 +40,24 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Sortable list headers (Phase 7a)
+
+`/orders`, `/invoices`, `/returns` lists support URL-driven sort via `?sort=<col>&dir=asc|desc`. Pattern:
+
+- Page-level Zod parse against a per-page enum of allowed columns at the trust boundary (matches the `?status=` filter pattern).
+- `<SortableHeader column={...} current={...} preserveParams={...}>` renders the cycle (asc → desc → reset). Reset drops the params entirely (matches BACKLOG spec).
+- DB layer (`fetchVisibleOrders`, `fetchVisibleInvoices`, `fetchVisibleReturns`) accepts `{ column, direction }` and orders at PostgREST level. `item_count` on `/orders` post-sorts client-side because PostgREST can't order by an aggregate over an embedded table.
+- Each list keeps `limit(200)` regardless of sort — pagination is a separate Phase 7 entry.
+
+## Role dashboards (Phase 7a)
+
+`/dashboard` picks one of five role components (admin → HQ → branch_manager → packer → branch_user). Each dashboard composes:
+
+- A row of `<StatCard>`s in a `<StatCardGrid>` (1 col mobile / 2 col tablet / 4 col desktop).
+- A `<RecentOrdersPanel>` showing the last 5 relevant orders.
+
+DB queries live in `src/lib/db/dashboard.ts` and run under the user's session client so RLS handles branch + role scoping. Adding a new metric: drop a helper into that module, drop a `<StatCard>` into the role component.
+
 ## App shell layout (3.3.2)
 
 `<AppShell>` (`src/components/app/app-shell.tsx`) is two regions:

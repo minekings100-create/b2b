@@ -21,6 +21,25 @@ export const INVOICE_STATUSES = [
   "cancelled",
 ] as const satisfies readonly Status[];
 
+export const INVOICES_SORTABLE_COLUMNS = [
+  "invoice_number",
+  "branch",
+  "status",
+  "issued_at",
+  "due_at",
+  "total_gross_cents",
+] as const;
+export type InvoicesSortColumn = (typeof INVOICES_SORTABLE_COLUMNS)[number];
+
+const INVOICES_SORT_DB_COLUMN: Record<InvoicesSortColumn, string> = {
+  invoice_number: "invoice_number",
+  branch: "branch_id",
+  status: "status",
+  issued_at: "issued_at",
+  due_at: "due_at",
+  total_gross_cents: "total_gross_cents",
+};
+
 export type InvoiceListRow = {
   id: string;
   invoice_number: string;
@@ -38,6 +57,7 @@ export type InvoiceListRow = {
 
 export async function fetchVisibleInvoices(
   statusFilter?: Status | null,
+  sort?: { column: InvoicesSortColumn; direction: "asc" | "desc" } | null,
 ): Promise<InvoiceListRow[]> {
   const supabase = createClient();
   let q = supabase
@@ -52,9 +72,16 @@ export async function fetchVisibleInvoices(
       `,
     )
     .is("deleted_at", null)
-    .order("created_at", { ascending: false })
     .limit(200);
   if (statusFilter) q = q.eq("status", statusFilter);
+  if (sort) {
+    q = q.order(INVOICES_SORT_DB_COLUMN[sort.column], {
+      ascending: sort.direction === "asc",
+      nullsFirst: false,
+    });
+  } else {
+    q = q.order("created_at", { ascending: false });
+  }
   const { data, error } = await q;
   if (error) throw new Error(`fetchVisibleInvoices: ${error.message}`);
 
