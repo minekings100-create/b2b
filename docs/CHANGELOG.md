@@ -1,5 +1,59 @@
 # Changelog
 
+## [Phase 3.3.3a] — 2026-04-19 — notification preferences + unsubscribe + minimal legal wiring
+
+### Added — schema + config
+- **`users.notification_preferences` JSONB column** (migration `20260419000001_user_notification_preferences.sql`). Shape `{ state_changes: { email, in_app }, admin_alerts: { email, in_app } }`. Default everything on (opt-out model, internal tool). Reminders fold into `state_changes`; trigger→category mapping in `src/lib/email/categories.ts`. RLS on `users` (self + admin) already covers reads + updates; no new policy.
+- **`src/config/company.ts`** — single typed export (`COMPANY: CompanyConfig`) used by every renderer of company identity (email footer today; /privacy, /cookies, legal boilerplate in 3.3.3b). Fields we don't have values for yet render the literal `[PLACEHOLDER]`; helper `isPlaceholder(value)` for future build-time readiness checklists.
+- **`src/lib/email/categories.ts`** — taxonomy single source of truth. `NotificationCategory` / `NotificationChannel` types, `NotificationTriggerType` closed union covering all 11 live `notify()` type strings, `TRIGGER_CATEGORY` map, `FORCED_EMAIL_TRIGGERS` whitelist (currently `['order_submitted_while_overdue']`), `CATEGORY_LABELS` for UI, `FORCED_DISCLOSURE_TEXT` for the settings disclosure line.
+
+### Added — unsubscribe flow
+- **`src/lib/email/unsubscribe-token.ts`** — HMAC-SHA256 signed tokens `<base64url(json(payload))>.<base64url(sig)>`. 60-day validity, 5-minute future-skew window. `encode`/`decode`/`verify` exports. Constant-time signature compare (`timingSafeEqual`). Not single-use — idempotent server action. New env var `UNSUBSCRIBE_TOKEN_SECRET` documented in `docs/ENV.md`.
+- **`src/app/unsubscribe/{page.tsx,actions.ts,success/page.tsx}`** — public route (no session). Confirm page verifies the token, shows category label + forced-category notice if applicable, posts to an idempotent server action that flips `email` bit via the admin client + writes an audit row. Any failure → one "expired or invalid" UX. Success page echoes what changed and offers /settings/notifications to resubscribe.
+
+### Added — settings UI
+- **`src/app/(app)/settings/layout.tsx`** — minimal two-column shell (secondary sidebar + content). One entry today ("Notifications"); upgrade to client-component nav when a second entry lands.
+- **`src/app/(app)/settings/notifications/{page.tsx,actions.ts,_components/notifications-form.client.tsx}`** — Server Component reads the user's row under their session (RLS self-select); client form renders the 2×2 grid via `useFormState` + `useFormStatus`. Forced-email cells render disabled with a `title` tooltip + `sr-only` hint. Server action preserves forced bits regardless of form input (defence against crafted POST). Save → `revalidatePath` → fresh RSC render with persisted state.
+- **Sidebar footer link** in `src/components/app/app-sidebar.tsx` — `Settings` icon + label, active for any route under `/settings`.
+
+### Changed — `notify()` filter + typing
+- **`src/lib/email/notify.ts`** — `type` parameter narrowed from `string` to `NotificationTriggerType` (closed union). Zero existing call sites broke — all 10 live literals already match the union. Per-recipient prefs bulk-read at the top of the function; in-app rows inserted only for opt-in recipients; email sent when opt-in OR trigger is on `FORCED_EMAIL_TRIGGERS`. Skip log line for non-forced email drops (`[notify] skipped email to <uid>: opted out of <category>`); forced sends never logged, payloads never logged.
+
+### Changed — email footer (minimal 3.3.3a patch)
+- **`src/lib/email/templates/_layout.ts`** — `htmlLayout` footer now renders `COMPANY.legal_name` + "Manage email preferences" + "Unsubscribe" links with `{{UNSUBSCRIBE_URL}}` / `{{PREFS_URL}}` placeholders. New `textFooter()` export mirrors the HTML footer as plaintext. `notify()` replaces the placeholders per recipient using a freshly-signed unsubscribe token. Templates untouched — zero per-template edits. Full visual polish (logo, responsive layout, address block) lands in 3.3.3b.
+
+### Audit log
+- Both the `/unsubscribe` flow and the settings page write one `audit_log` row per changed save. Decision: single action name `notification_preferences_updated` with full `before_json.preferences` + `after_json.preferences` + `after_json.source` (`'email_link'` vs `'settings_page'`). One row per save (not per bit) — matches the repo's one-row-per-user-action pattern; diff is trivially unpackable at read time. Idempotent: skipped when nothing changed.
+
+### Tests
+- **`tests/lib/unsubscribe-token.test.ts`** — 16 cases covering encode→decode roundtrip, expiry (60 days), future skew (±5 min), tampering rejection (mutated sig, mutated payload), malformed input, unknown category, wrong-secret rejection, unset-secret throws.
+- **`tests/lib/notify-prefs.test.ts`** — 8 cases: email-only skip, in_app-only skip, both-off silent, all-on happy path, forced bypass (admin_alerts.email off → still sent), forced in-app respected (forced is email-only), per-recipient URL composition (no `{{...}}` leaks), token-per-recipient uniqueness.
+- **`tests-e2e/settings-notifications.spec.ts`** — 4 cases: 2×2 grid renders with admin_alerts.email locked + disclosure shown, toggle persists across reload + mirrors to DB, crafted POST preserves forced bit, save writes audit row with `source='settings_page'`.
+- **`tests-e2e/unsubscribe-3-3-3a.spec.ts`** — 3 cases: valid-token happy path (page + click + DB + audit `source='email_link'`), garbage token → expired-or-invalid UX, admin_alerts token shows "keep being sent" notice.
+
+### Pre-production fill-ins
+
+Values listed as `[PLACEHOLDER]` in `src/config/company.ts` that need real data before the first production email goes out. Grep `isPlaceholder` or `\[PLACEHOLDER\]` to audit.
+
+- `COMPANY.kvk` — Kamer van Koophandel registration number.
+- `COMPANY.btw_number` — BTW / VAT number (NL format: NL123456789B01).
+- `COMPANY.visiting_address` — visiting (walk-in) address for the legal footer.
+- `COMPANY.postal_address` — postal address if different from visiting; otherwise copy of `visiting_address`.
+- `COMPANY.phone` — main contact phone.
+
+Proposed defaults **requiring confirmation** (not placeholders; values picked based on repo precedent, may still be wrong):
+- `COMPANY.support_email = "info@bessemsmarketingservice.nl"` — same inbox the account-holder uses personally. Alternative: `support@bessemsmarketingservice.nl`.
+- `COMPANY.website_url = "https://bessemsmarketingservice.nl"` — public marketing site root. The internal procurement URL (`procurement.bessems.nl` per `docs/ENV.md`) is intentionally NOT used here because the legal footer should link the company's public face, not an internal app.
+- `COMPANY.legal_name = "Bessems Marketing Service B.V."` — confirmed by the user.
+
+### Deferred to 3.3.3b
+- Polished email templates (logo, branded hero, responsive table grid) and full legal footer layout.
+- `/privacy` + `/cookies` pages with GDPR boilerplate.
+- Address + KvK + phone inclusion in the footer once real values are supplied.
+
+### Deferred to a later 3.3.3a follow-up (not yet applied)
+- **Ghost-recipient skip in `notify()`.** Today `wantsInApp`/`wantsEmail` fall back to `?? true` when a user_id is absent from the bulk pref read. Proposed tightening: skip those recipients entirely (row disappeared between resolution and send). Preserves `?? true` for the "row exists, incomplete shape" case. Defer until the next notifications PR touches `notify()`.
+
 ## [Phase 3.3.2 follow-up] — 2026-04-19 — orphaned notifications
 
 ### Bug

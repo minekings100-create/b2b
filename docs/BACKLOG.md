@@ -78,6 +78,19 @@ _(none yet)_
 
 ## Phase 4 — Picking & packing
 
+### HQ approval: inline stock preview
+_Captured: 2026-04-19._
+
+When an HQ manager reviews a pending (branch-approved) order, show a subtle per-line inventory preview next to each line item:
+
+> _on-hand: 42 → 30 after approval (12 reserved now)_
+
+Small text, muted colour (`text-fg-subtle` / `text-xs`). Only rendered on the **HQ approver view** — the branch manager has already signed off on step 1 and cannot change quantities at step 2, so the preview would be noise there.
+
+**Why phase 4 and not phase 7:** sits in the warehouse/inventory mental model phase 4 already occupies (pick lists, pallet labels, on-hand vs reserved). Phase 7 is polish on existing flows; this is a _new_ approval behaviour, not a cosmetic tweak.
+
+**Implementation pointer:** uses existing columns `products.on_hand` + `products.reserved` already populated by the reservations flow (3.2). Pure read + render — no schema change, no action change. Compute `on_hand - reserved - pendingReserveForThisOrder` in the Server Component that renders the HQ review table.
+
 ### Inline item detail panel on the pick list
 _Captured: 2026-04-17._
 
@@ -142,6 +155,45 @@ _Captured: 2026-04-19._
 - Columns to support: `number`, `submitted_at`, `branch`, `total_gross_cents`, `item_count`, `status`, `approved_at`, `branch_approved_at`. Default fallback (no `sort` param) stays `submitted_at desc`.
 - Server Component path: parse the param with Zod at the trust boundary (same pattern as the `?status=` filter chips), pass into `fetchVisibleOrders` / `fetchApprovalQueue`.
 - Each list query keeps its hard `limit(200)` regardless of sort — pagination is a separate Phase 7 entry.
+
+## Phase 8 — Communication (post-MVP)
+
+### In-portal messaging between roles
+_Captured: 2026-04-19._
+
+**Goal.** Allow users inside the portal to have threaded conversations without leaving the app.
+
+**Scope v1 (smallest useful):**
+- 1-on-1 threads between specific role pairs (see matrix below).
+- Thread attached to EITHER a specific order OR a branch — not free-floating DMs. Always has a context anchor.
+- Text only, no attachments v1.
+- Unread badge in the header bell or a separate chat icon.
+- Realtime via Supabase Realtime (existing stack, no new infra).
+
+**Permission matrix — who can start a thread with whom:**
+
+|                  | Branch User | Branch Mgr | HQ Mgr | Packer | Admin | Super |
+|------------------|:-----------:|:----------:|:------:|:------:|:-----:|:-----:|
+| Branch User      | —           | ✓          | ✓      | ✗      | ✓     | ✓     |
+| Branch Manager   | ✓           | —          | ✓      | ✗      | ✓     | ✓     |
+| HQ Manager       | ✓           | ✓          | —      | ✓*     | ✓     | ✓     |
+| Packer           | ✗           | ✗          | ✓*     | —      | ✓     | ✓     |
+| Administration   | ✓           | ✓          | ✓      | ✓      | —     | ✓     |
+
+\* Packer ↔ HQ Manager only allowed when anchored to a specific order the packer is assigned to. Prevents packers DMing HQ about unrelated matters.
+
+**RLS requirements:**
+- A user can read a thread only if they are a participant.
+- Cross-branch reads blocked at the Postgres level (same RLS discipline as orders).
+- Soft delete, no hard delete (GDPR + audit).
+
+**Why not now:**
+- Core MVP (packing, invoicing, payment) ships first.
+- Email + in-app notifications already cover 80 % of routine communication.
+- Scope: chat v1 is ~20–40 hrs of its own work.
+- Real demand unvalidated — customers may just use existing tools (WhatsApp / Teams) in parallel to the portal.
+
+**Revisit trigger:** after the first real customer uses the system in production for 4+ weeks, ask whether they wished they could message inside the portal. If yes, build. If they shrug, this stays on the backlog.
 
 ## Cross-cutting
 
