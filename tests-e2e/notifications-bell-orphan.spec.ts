@@ -189,13 +189,22 @@ test.describe("3.3.2 follow-up — orphaned notifications", () => {
     ).toHaveAttribute("data-stale", "true");
     await expect(page).not.toHaveURL(/\/orders\//);
 
-    // Notification was auto-marked read.
-    const { data: notif } = await admin
-      .from("notifications")
-      .select("read_at")
-      .eq("user_id", uid)
-      .filter("payload_json->>_fixture", "eq", FIXTURE_PREFIX)
-      .single();
-    expect(notif?.read_at).not.toBeNull();
+    // Notification was auto-marked read. The mark happens via a
+    // post-click server action that settles asynchronously; poll the
+    // DB rather than racing it.
+    await expect
+      .poll(
+        async () => {
+          const { data } = await admin
+            .from("notifications")
+            .select("read_at")
+            .eq("user_id", uid)
+            .filter("payload_json->>_fixture", "eq", FIXTURE_PREFIX)
+            .single();
+          return data?.read_at ?? null;
+        },
+        { timeout: 5_000 },
+      )
+      .not.toBeNull();
   });
 });

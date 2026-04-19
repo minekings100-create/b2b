@@ -148,6 +148,22 @@ function describeAction(action: string): string {
       return "Invoice overdue";
     case "invoice_reminder":
       return "Overdue reminder sent";
+    case "mollie_payment_created":
+      return "Mollie payment created";
+    case "mollie_webhook_received":
+      return "Mollie webhook received";
+    case "return_requested":
+      return "Return requested";
+    case "return_approved":
+      return "Return approved";
+    case "return_rejected":
+      return "Return rejected";
+    case "return_received":
+      return "Return received";
+    case "return_closed":
+      return "Return closed";
+    case "order_replacement_created":
+      return "Replacement order created";
     case "cart_add":
       return "Added to cart";
     case "cart_update_qty":

@@ -678,3 +678,133 @@ export function renderInvoiceOverdueReminder(input: {
   });
   return { subject, html, text };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6 — RMA templates
+// ---------------------------------------------------------------------------
+
+function returnUrl(returnId: string): string {
+  return `${appBaseUrl()}/returns/${returnId}`;
+}
+
+/** return_requested → admin audience */
+export function renderReturnRequested(input: {
+  return_id: string;
+  rma_number: string;
+  order_number: string;
+  branch_code: string;
+  branch_name: string;
+}): RenderedEmail {
+  const url = returnUrl(input.return_id);
+  const subject = `New return ${input.rma_number} from ${input.branch_code}`;
+  const text = [
+    `A branch has opened a return request.`,
+    ``,
+    `RMA: ${input.rma_number}`,
+    `Order: ${input.order_number}`,
+    `Branch: ${input.branch_code} (${input.branch_name})`,
+    ``,
+    `Review: ${url}`,
+  ].join("\n");
+  const html = htmlLayout({
+    preheader: `Return ${input.rma_number} awaiting review`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;">New return request</p>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;">
+        <tr><td style="padding:4px 0;color:#71717a;width:120px;">RMA</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.rma_number)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Order</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.order_number)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Branch</td><td style="padding:4px 0;">${escape(input.branch_code)} · ${escape(input.branch_name)}</td></tr>
+      </table>
+    `,
+    ctaUrl: url,
+    ctaLabel: "Review return →",
+  });
+  return { subject, html, text };
+}
+
+/** return_approved → requester */
+export function renderReturnApproved(input: {
+  return_id: string;
+  rma_number: string;
+  branch_code: string;
+}): RenderedEmail {
+  const url = returnUrl(input.return_id);
+  const subject = `Return ${input.rma_number} approved`;
+  const text = [
+    `Your return request was approved.`,
+    ``,
+    `RMA: ${input.rma_number}`,
+    `Branch: ${input.branch_code}`,
+    ``,
+    `Ship the items back and track status at:`,
+    url,
+  ].join("\n");
+  const html = htmlLayout({
+    preheader: `Return ${input.rma_number} approved`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;color:#059669;">Return approved</p>
+      <p style="margin:0 0 12px;">Your return request <strong style="font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.rma_number)}</strong> has been approved. Ship the items back to HQ; a status update will follow when they're received.</p>
+    `,
+    ctaUrl: url,
+    ctaLabel: "Open return →",
+  });
+  return { subject, html, text };
+}
+
+/** return_rejected → requester */
+export function renderReturnRejected(input: {
+  return_id: string;
+  rma_number: string;
+  reason: string;
+}): RenderedEmail {
+  const url = returnUrl(input.return_id);
+  const subject = `Return ${input.rma_number} rejected`;
+  const text = [
+    `Your return request was rejected.`,
+    ``,
+    `RMA: ${input.rma_number}`,
+    ``,
+    `Reason:`,
+    input.reason,
+    ``,
+    `Details: ${url}`,
+  ].join("\n");
+  const html = htmlLayout({
+    preheader: `Return ${input.rma_number} rejected`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;color:#b91c1c;">Return rejected</p>
+      <p style="margin:0 0 12px;">Your return request <strong style="font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.rma_number)}</strong> was rejected.</p>
+      <p style="margin:12px 0 4px;color:#71717a;">Reason</p>
+      <blockquote style="margin:0 0 12px;padding:12px 16px;background:#fef2f2;border-left:3px solid #b91c1c;color:#7f1d1d;">${escape(input.reason)}</blockquote>
+    `,
+    ctaUrl: url,
+    ctaLabel: "View return →",
+  });
+  return { subject, html, text };
+}
+
+/** return_received → requester */
+export function renderReturnReceived(input: {
+  return_id: string;
+  rma_number: string;
+}): RenderedEmail {
+  const url = returnUrl(input.return_id);
+  const subject = `Return ${input.rma_number} received`;
+  const text = [
+    `We've received the items for your return.`,
+    ``,
+    `RMA: ${input.rma_number}`,
+    ``,
+    `Details: ${url}`,
+  ].join("\n");
+  const html = htmlLayout({
+    preheader: `Return ${input.rma_number} received`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;">Return received</p>
+      <p style="margin:0 0 12px;">We've received the items for your return <strong style="font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.rma_number)}</strong>. The resolution details are available on the return page.</p>
+    `,
+    ctaUrl: url,
+    ctaLabel: "Open return →",
+  });
+  return { subject, html, text };
+}

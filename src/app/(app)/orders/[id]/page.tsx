@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, AlertCircle, Pencil } from "lucide-react";
+import { ChevronLeft, AlertCircle, Pencil, Archive } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
@@ -98,6 +98,16 @@ export default async function OrderDetailPage({
     ? await fetchOpenInvoiceForOrder(order.id)
     : null;
   const canCreateInvoice = admin && orderIsInvoiceable && openInvoice === null;
+
+  // Phase 6 — "Create return" surfaces on delivered/closed orders
+  // for anyone with branch scope (creator isn't special-cased).
+  const isBranchScoped =
+    admin ||
+    isMyBranchManager ||
+    session.roles.some((r) => r.branch_id === order.branch_id);
+  const canOpenReturn =
+    (order.status === "delivered" || order.status === "closed") &&
+    isBranchScoped;
 
   return (
     <>
@@ -283,6 +293,20 @@ export default async function OrderDetailPage({
             entries={editHistory}
             totalEdits={order.edit_count}
           />
+        ) : null}
+
+        {canOpenReturn ? (
+          <section className="space-y-3" data-testid="order-return-section">
+            <h2 className="text-base font-semibold tracking-tight">Returns</h2>
+            <Link
+              href={`/returns/new?order_id=${order.id}`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-surface px-2.5 text-xs font-medium text-fg ring-1 ring-inset ring-border hover:bg-surface-elevated"
+              data-testid="order-create-return-button"
+            >
+              <Archive className="h-3 w-3" />
+              Open a return
+            </Link>
+          </section>
         ) : null}
 
         {orderIsInvoiceable ? (
