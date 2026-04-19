@@ -117,6 +117,19 @@ _Captured: 2026-04-18 (from 3.2.2 plan)._
 
 `src/lib/dates/working-days.ts` (3.2.2c) ships with a `holidays?: Date[]` option already plumbed through but no holiday data wired in. Phase 7 adds: (a) a small admin UI to manage NL public holidays (or import a static list — Koningsdag, Bevrijdingsdag, the standard set), (b) a server helper that loads the active list and passes it to every `addWorkingDays` / `isWorkingDay` call site (auto-cancel cron, invoice `due_at`).
 
+### 90-day notifications cleanup cron
+_Captured: 2026-04-19 (from the orphaned-notification follow-up to 3.3.2)._
+
+3.3.2 hides orphaned notifications (target order deleted) at the data layer + has a defensive click-time recheck. Both work, but old notifications still accumulate forever — over months / years that's a slow-growing dead-row problem on the `notifications` table.
+
+**Behaviour when picked up:**
+- New cron route `/api/cron/cleanup-notifications` (or fold into the existing `/api/cron/auto-cancel-stale-orders` if both run on the same daily tick).
+- `DELETE FROM notifications WHERE sent_at < now() - interval '90 days' AND read_at IS NOT NULL` — only delete read rows past 90 days, leave unread alone forever (the user hasn't seen them yet).
+- Schedule: weekly (`0 6 * * 0` UTC = Sunday 08:00 winter) — daily is overkill for housekeeping.
+- `CRON_SECRET` Bearer guard, same as the other cron routes.
+- 90 days mirrors GDPR-friendly retention defaults; revisit alongside the broader Phase 7 retention policy.
+- Audit-log: skip — high-volume housekeeping; emit a single summary row per run if useful (`action='notifications_cleanup'`, `after_json={ deleted: N }`).
+
 ### Sortable column headers on order tables
 _Captured: 2026-04-19._
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [Phase 3.3.2 follow-up] — 2026-04-19 — orphaned notifications
+
+### Bug
+- Clicking an older notification could 404 when the linked order had been deleted (e.g. by an e2e teardown, an admin cleanup, or any other path that removes the row). The notification still rendered in the dropdown, then `router.push(payload.href)` landed on `/orders/[id]` → notFound.
+
+### Fix
+- **Data layer (`src/lib/db/notifications.ts`):** `fetchMyNotifications` now over-fetches (30 raw → 10 visible) and post-filters notifications whose `payload.order_id` no longer maps to an existing, RLS-visible order. Adjusts the unread badge count down by the orphan-unread delta so badge ↔ dropdown stay consistent.
+- **Defensive click (`src/components/app/notifications-bell.client.tsx`):** before `router.push`, the bell calls a new `/api/notifications/me/check?id=…` endpoint. On `{ ok: false }` the row is marked stale in place — `data-stale="true"`, strikethrough headline, inline message ("This order is no longer available — it was deleted or you can no longer access it.") — and the notification is auto-marked read. Dropdown stays open so the user has the explanation in context. Network failures are treated as "navigate anyway" (false negatives are worse than false positives here).
+- **New route:** `src/app/api/notifications/me/check/route.ts` — single-shot `{ ok: boolean }` for the click-time recheck.
+
+### Tests
+- `tests-e2e/notifications-bell-orphan.spec.ts` (new, 2 cases):
+  - Notification with a deleted order is filtered from the dropdown + badge stays at 0.
+  - Race scenario — order deleted between dropdown render and click → row turns stale, inline message visible, no navigation, notification auto-marked read.
+- `tests-e2e/notifications-bell-3-3-2.spec.ts` updated: bell-mechanics fixtures now omit `payload.order_id` (the previous fake-UUID approach was relying on the absence of orphan filtering — they'd otherwise be filtered out themselves).
+
+### Deferred
+- 90-day notifications-cleanup cron (housekeeping for accumulated read rows) added to `docs/BACKLOG.md` under Phase 7. Not blocking — rows accumulate slowly, the orphan filter handles the user-facing symptom.
+
 ## [Phase 3.3.2] — 2026-04-19
 
 ### Added

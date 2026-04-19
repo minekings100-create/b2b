@@ -101,19 +101,68 @@ export function NotificationsBellClient({
     };
   }, [open]);
 
+  // Notifications whose target order has been deleted between the list
+  // render and the user's click. We mark them in-place rather than
+  // re-fetching so the dropdown stays open with a clear in-context
+  // explanation, and the row gets `data-stale="true"` for the e2e suite.
+  const [staleIds, setStaleIds] = React.useState<Set<string>>(new Set());
+
+  const markRead = React.useCallback(
+    (id: string) => {
+      const fd = new FormData();
+      fd.append("id", id);
+      void markNotificationsRead(undefined, fd).then(refresh);
+    },
+    [refresh],
+  );
+
   const onClickItem = async (n: NotificationCard) => {
+    if (staleIds.has(n.id)) return; // already shown as stale; no-op
+
+    // Race-time defensive check — `fetchMyNotifications` already drops
+    // orphans before they hit this list, but the order can be deleted
+    // between the dropdown render and this click. Hit the check
+    // endpoint before navigating; on a "no-go" mark the row stale in
+    // place + mark the notification read, and leave the dropdown open.
+    let reachable = true;
+    try {
+      const res = await fetch(
+        `/api/notifications/me/check?id=${encodeURIComponent(n.id)}`,
+        { cache: "no-store" },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as { ok: boolean };
+        reachable = body.ok;
+      }
+    } catch {
+      // Network failure — let the navigate proceed; the order page
+      // will 404 itself if it really is gone, and the user can hit
+      // back. Refusing to navigate on every blip would be worse.
+    }
+
+    if (!reachable) {
+      setStaleIds((s) => new Set(s).add(n.id));
+      if (!n.read_at) {
+        setSnapshot((s) => ({
+          unread_count: Math.max(0, s.unread_count - 1),
+          recent: s.recent.map((r) =>
+            r.id === n.id ? { ...r, read_at: new Date().toISOString() } : r,
+          ),
+        }));
+        markRead(n.id);
+      }
+      return; // Do NOT close the dropdown; the inline message lives there.
+    }
+
     setOpen(false);
     if (!n.read_at) {
-      // Optimistic local update so the dot disappears immediately.
       setSnapshot((s) => ({
         unread_count: Math.max(0, s.unread_count - 1),
         recent: s.recent.map((r) =>
           r.id === n.id ? { ...r, read_at: new Date().toISOString() } : r,
         ),
       }));
-      const fd = new FormData();
-      fd.append("id", n.id);
-      void markNotificationsRead(undefined, fd).then(refresh);
+      markRead(n.id);
     }
     router.push(n.href);
   };
@@ -209,15 +258,18 @@ export function NotificationsBellClient({
             >
               {snapshot.recent.map((n) => {
                 const isUnread = !n.read_at;
+                const isStale = staleIds.has(n.id);
                 return (
                   <li
                     key={n.id}
                     className={cn(
                       "border-b border-border last:border-b-0",
-                      isUnread && "bg-accent-subtle/40",
+                      isUnread && !isStale && "bg-accent-subtle/40",
+                      isStale && "bg-zinc-100/60 dark:bg-zinc-900/60",
                     )}
                     data-testid="notifications-item"
                     data-read={isUnread ? "false" : "true"}
+                    data-stale={isStale ? "true" : undefined}
                   >
                     <button
                       type="button"
@@ -240,14 +292,24 @@ export function NotificationsBellClient({
                           <p
                             className={cn(
                               "text-sm leading-snug",
-                              isUnread ? "text-fg" : "text-fg-muted",
+                              isStale && "line-through text-fg-subtle",
+                              !isStale && (isUnread ? "text-fg" : "text-fg-muted"),
                             )}
                           >
                             {n.headline}
                           </p>
-                          <p className="font-numeric text-xs text-fg-subtle">
-                            {relativeTime(n.sent_at)}
-                          </p>
+                          {isStale ? (
+                            <p
+                              className="text-xs text-warning-subtle-fg"
+                              data-testid="notifications-stale-message"
+                            >
+                              This order is no longer available — it was deleted or you can no longer access it.
+                            </p>
+                          ) : (
+                            <p className="font-numeric text-xs text-fg-subtle">
+                              {relativeTime(n.sent_at)}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </button>
