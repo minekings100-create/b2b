@@ -490,13 +490,21 @@ export async function cancelInvoice(
     .eq("id", parsed.data.invoice_id)
     .maybeSingle();
   if (!current) return { ok: false, error: "Invoice not found" };
+  // Cancel applies to issued+ invoices only — drafts map to a fulfilled
+  // order and aren't discardable. The UI on /invoices/[id] doesn't
+  // render the Cancel button for drafts; this server-side gate is
+  // defence-in-depth against a crafted POST. See BACKLOG Phase 5
+  // entry "Cancel button should not appear on drafts".
   const cancellable: ReadonlyArray<
     Database["public"]["Enums"]["invoice_status"]
-  > = ["draft", "issued", "overdue"];
+  > = ["issued", "overdue"];
   if (!cancellable.includes(current.status)) {
     return {
       ok: false,
-      error: `Cannot cancel an invoice in status ${current.status}.`,
+      error:
+        current.status === "draft"
+          ? "Drafts cannot be cancelled — they belong to a fulfilled order. Issue the invoice instead."
+          : `Cannot cancel an invoice in status ${current.status}.`,
     };
   }
 
