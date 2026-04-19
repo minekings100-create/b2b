@@ -575,3 +575,106 @@ export function renderOrderEdited(input: {
   });
   return { subject, html, text };
 }
+
+// ---------------------------------------------------------------------------
+// invoice_issued — to: branch managers
+// ---------------------------------------------------------------------------
+
+function invoiceUrl(invoiceId: string): string {
+  return `${appBaseUrl()}/invoices/${invoiceId}`;
+}
+
+function formatDueDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("nl-NL", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Europe/Amsterdam",
+  });
+}
+
+export function renderInvoiceIssued(input: {
+  invoice_id: string;
+  invoice_number: string;
+  branch_code: string;
+  branch_name: string;
+  order_number: string | null;
+  total_gross_cents: number;
+  due_at: string;
+}): RenderedEmail {
+  const url = invoiceUrl(input.invoice_id);
+  const subject = `Invoice ${input.invoice_number} issued — due ${formatDueDate(input.due_at)}`;
+  const text = [
+    `A new invoice has been issued to your branch.`,
+    ``,
+    `Invoice: ${input.invoice_number}`,
+    `Branch: ${input.branch_code} (${input.branch_name})`,
+    input.order_number ? `Order: ${input.order_number}` : null,
+    `Total: ${eur(input.total_gross_cents)}`,
+    `Due: ${formatDueDate(input.due_at)}`,
+    ``,
+    `Open: ${url}`,
+  ]
+    .filter((l): l is string => l !== null)
+    .join("\n");
+  const html = htmlLayout({
+    preheader: `Invoice ${input.invoice_number} — due ${formatDueDate(input.due_at)}`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;">Invoice issued</p>
+      <p style="margin:0 0 12px;">A new invoice has been issued to your branch.</p>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;">
+        <tr><td style="padding:4px 0;color:#71717a;width:120px;">Invoice</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.invoice_number)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Branch</td><td style="padding:4px 0;">${escape(input.branch_code)} · ${escape(input.branch_name)}</td></tr>
+        ${input.order_number ? `<tr><td style="padding:4px 0;color:#71717a;">Order</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.order_number)}</td></tr>` : ""}
+        <tr><td style="padding:4px 0;color:#71717a;">Total</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(eur(input.total_gross_cents))}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Due</td><td style="padding:4px 0;">${escape(formatDueDate(input.due_at))}</td></tr>
+      </table>
+    `,
+    ctaUrl: url,
+    ctaLabel: "Open invoice →",
+  });
+  return { subject, html, text };
+}
+
+// ---------------------------------------------------------------------------
+// invoice_overdue_reminder — to: branch managers (cron-driven)
+// ---------------------------------------------------------------------------
+
+export function renderInvoiceOverdueReminder(input: {
+  invoice_id: string;
+  invoice_number: string;
+  branch_code: string;
+  branch_name: string;
+  total_gross_cents: number;
+  due_at: string;
+  days_overdue: number;
+}): RenderedEmail {
+  const url = invoiceUrl(input.invoice_id);
+  const subject = `Reminder: invoice ${input.invoice_number} is ${input.days_overdue} days overdue`;
+  const text = [
+    `Your branch has an overdue invoice.`,
+    ``,
+    `Invoice: ${input.invoice_number}`,
+    `Branch: ${input.branch_code} (${input.branch_name})`,
+    `Total: ${eur(input.total_gross_cents)}`,
+    `Due on: ${formatDueDate(input.due_at)}`,
+    `Days overdue: ${input.days_overdue}`,
+    ``,
+    `Open: ${url}`,
+  ].join("\n");
+  const html = htmlLayout({
+    preheader: `Invoice ${input.invoice_number} is ${input.days_overdue} days overdue`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;color:#b45309;">Payment reminder</p>
+      <p style="margin:0 0 12px;">Invoice <strong style="font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.invoice_number)}</strong> for ${escape(input.branch_code)} is <strong>${input.days_overdue} days past its due date</strong>.</p>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;">
+        <tr><td style="padding:4px 0;color:#71717a;width:120px;">Invoice</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.invoice_number)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Total</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(eur(input.total_gross_cents))}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Due on</td><td style="padding:4px 0;">${escape(formatDueDate(input.due_at))}</td></tr>
+      </table>
+    `,
+    ctaUrl: url,
+    ctaLabel: "Open invoice →",
+  });
+  return { subject, html, text };
+}

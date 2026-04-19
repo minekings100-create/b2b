@@ -31,7 +31,7 @@ Phase 3 splits into 3.1 / 3.2 / 3.2.1 / 3.2.2{a,b,c} / 3.3.{1,2,3} (already ship
 | 3.3.3 | Email preferences + polished templates + unsubscribe + legal | ⚪ planned |
 | **3.4** | **Order edit (pre-approval)** | 🟡 in PR — schema (`edit_count` + `last_edited_*` + `order_edit_history`), `editOrder` action with double-guarded concurrency, `/orders/[id]/edit` UI, `<OrderEditHistory>` diff viewer, BM-approve mid-edit guard, `order_edited` notification + email + headline + timeline integration. |
 | 4 | Picking & packing | 🟡 in PR — scope: pick queue, scan / manual pack, pallet management, pallet label + pick list PDFs. Shipping (§8.4) + receiving (§8.5) deferred to 4.1 / 4.2. |
-| 5 | Invoicing | ⚪ planned |
+| 5 | Invoicing | 🟡 in PR — createDraftInvoiceFromOrder / issueInvoice / markInvoicePaid / cancelInvoice admin actions; A4 invoice PDF; `/invoices` list + `/invoices/[id]` detail; order-detail integration; `invoice_issued` + `invoice_overdue_reminder` notifications; nightly overdue cron at 02:00 Europe/Amsterdam (DST drift tracked) with idempotent reminder ladder (7/14/30 days). No migration — reused 1.5 schema. |
 | 6 | Online payment & RMA | ⚪ planned |
 | 7 | Polish (incl. sortable headers, NL holidays, DST cron, archive/restore) | ⚪ planned |
 

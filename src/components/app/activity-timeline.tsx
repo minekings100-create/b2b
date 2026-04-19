@@ -136,6 +136,18 @@ function describeAction(action: string): string {
       return "Auto-cancelled (HQ timeout)";
     case "order_edited":
       return "Edited";
+    case "invoice_draft_created":
+      return "Draft invoice created";
+    case "invoice_issued":
+      return "Invoice issued";
+    case "invoice_paid":
+      return "Invoice paid";
+    case "invoice_cancelled":
+      return "Invoice cancelled";
+    case "invoice_overdue":
+      return "Invoice overdue";
+    case "invoice_reminder":
+      return "Overdue reminder sent";
     case "cart_add":
       return "Added to cart";
     case "cart_update_qty":
@@ -150,10 +162,6 @@ function describeAction(action: string): string {
       return "Shipped";
     case "deliver":
       return "Delivered";
-    case "invoice_issue":
-      return "Invoiced";
-    case "invoice_paid":
-      return "Marked paid";
     case "return_open":
       return "Return opened";
     default:
@@ -197,8 +205,16 @@ function summarisePayload(action: string, payload: Json | null): string {
   ) {
     return truncate(obj.reason, 80);
   }
-  if (action === "invoice_issue" && typeof obj.invoice_number === "string") {
-    return `as ${obj.invoice_number}`;
+  if (
+    (action === "invoice_draft_created" ||
+      action === "invoice_issued" ||
+      action === "invoice_paid" ||
+      action === "invoice_cancelled" ||
+      action === "invoice_overdue" ||
+      action === "invoice_reminder") &&
+    typeof obj.invoice_number === "string"
+  ) {
+    return obj.invoice_number;
   }
   if (action === "order_edited") {
     // `after_json` for order_edited carries line_delta + total_delta_cents
