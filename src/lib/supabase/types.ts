@@ -385,6 +385,51 @@ export type Database = {
         }
         Relationships: []
       }
+      order_edit_history: {
+        Row: {
+          after_snapshot: Json
+          before_snapshot: Json
+          edit_reason: string | null
+          edited_at: string
+          edited_by_user_id: string | null
+          id: string
+          order_id: string
+        }
+        Insert: {
+          after_snapshot: Json
+          before_snapshot: Json
+          edit_reason?: string | null
+          edited_at?: string
+          edited_by_user_id?: string | null
+          id?: string
+          order_id: string
+        }
+        Update: {
+          after_snapshot?: Json
+          before_snapshot?: Json
+          edit_reason?: string | null
+          edited_at?: string
+          edited_by_user_id?: string | null
+          id?: string
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_edit_history_edited_by_user_id_fkey"
+            columns: ["edited_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_edit_history_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           created_at: string
@@ -455,7 +500,10 @@ export type Database = {
           created_at: string
           created_by_user_id: string
           deleted_at: string | null
+          edit_count: number
           id: string
+          last_edited_at: string | null
+          last_edited_by_user_id: string | null
           notes: string | null
           order_number: string
           rejection_reason: string | null
@@ -475,7 +523,10 @@ export type Database = {
           created_at?: string
           created_by_user_id: string
           deleted_at?: string | null
+          edit_count?: number
           id?: string
+          last_edited_at?: string | null
+          last_edited_by_user_id?: string | null
           notes?: string | null
           order_number: string
           rejection_reason?: string | null
@@ -495,7 +546,10 @@ export type Database = {
           created_at?: string
           created_by_user_id?: string
           deleted_at?: string | null
+          edit_count?: number
           id?: string
+          last_edited_at?: string | null
+          last_edited_by_user_id?: string | null
           notes?: string | null
           order_number?: string
           rejection_reason?: string | null
@@ -531,6 +585,13 @@ export type Database = {
           {
             foreignKeyName: "orders_created_by_user_id_fkey"
             columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_last_edited_by_user_id_fkey"
+            columns: ["last_edited_by_user_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]

@@ -29,9 +29,14 @@ import type { OrderDetailLine } from "@/lib/db/order-detail";
 export function ApproveForm({
   orderId,
   items,
+  lastEditedAt,
 }: {
   orderId: string;
   items: OrderDetailLine[];
+  /** `orders.last_edited_at` snapshot at render time — drives the
+   *   concurrency guard that trips if the order was edited between
+   *   the approval form render and submit. */
+  lastEditedAt: string | null;
 }) {
   const initial = useMemo(() => {
     const out: Record<string, number> = {};
@@ -50,6 +55,11 @@ export function ApproveForm({
   return (
     <form action={branchApproveOrderFormAction} className="space-y-4">
       <input type="hidden" name="order_id" value={orderId} />
+      <input
+        type="hidden"
+        name="last_edited_at_expected"
+        value={lastEditedAt ?? ""}
+      />
 
       <div className="overflow-hidden rounded-lg ring-1 ring-border">
         <Table>

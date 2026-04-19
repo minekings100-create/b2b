@@ -79,6 +79,16 @@ Per-user opt-in/out for email + in-app notifications, plus an HMAC-signed unsubs
 - **Email footer:** `src/lib/email/templates/_layout.ts` `htmlLayout` + `textFooter` inject per-recipient unsubscribe + prefs links using `{{UNSUBSCRIBE_URL}}` and `{{PREFS_URL}}` placeholders. `notify()` substitutes them at send time so templates stay pure (one render per trigger).
 - **Company identity:** `src/config/company.ts` is the single import site for legal name, KvK, addresses, support email, website. `[PLACEHOLDER]` values are listed in `docs/CHANGELOG.md` under "pre-production fill-ins".
 
+### Order edit (Phase 3.4)
+
+A `submitted` order can be edited until the BM moves it to `branch_approved`. After that the order is frozen for the rest of its lifecycle.
+
+- **`/orders/[id]/edit`** — Server Component checks status + role gate (creator / BM-of-branch / admin/super; HQ explicitly excluded), hydrates `<EditForm>` with current lines + product min/max bounds.
+- **`editOrder`** server action (`src/lib/actions/order-edit.ts`) — diffs desired vs current `order_items`, applies inserts / updates / deletes, recomputes totals via `recomputeOrderTotals`, stamps `edit_count++ / last_edited_at / last_edited_by_user_id`, resets `submitted_at` so the §8.8 step-1 auto-cancel timer restarts. Append-only `order_edit_history` row with full before/after JSON snapshots; `audit_log` row with line + total deltas.
+- **Concurrency** — header UPDATE is double-guarded on `status='submitted'` AND `edit_count = expected`, so two edits can't race past each other. The BM approve form (`branchApproveOrder`) carries `last_edited_at_expected` and refuses with a friendly "refresh" error if the order was edited mid-review (SPEC §8.9 + journal risk #4).
+- **`<OrderEditHistory>`** (`src/components/app/order-edit-history.tsx`) — collapsible diff viewer below the activity timeline; aligns Before/After by `product_id`. Row-level rendering shows removed / added / changed lines via `data-diff-kind` attributes.
+- **Notification** — new trigger `order_edited` in `categories.ts` (state_changes, not forced); `renderOrderEdited` template; `describeNotification` headline; `ActivityTimeline.describeAction` learned the action label + payload summary.
+
 ### Picking & packing (Phase 4)
 
 Packer-first two-route workflow:

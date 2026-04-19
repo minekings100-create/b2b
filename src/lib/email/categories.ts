@@ -36,6 +36,7 @@ export type NotificationTriggerType =
   | "order_hq_rejected_to_branch_manager"
   | "order_cancelled"
   | "order_auto_cancelled"
+  | "order_edited"
   | "submitted_awaiting_branch_reminder"
   | "branch_approved_awaiting_hq_reminder";
 
@@ -60,6 +61,7 @@ export const TRIGGER_CATEGORY: Record<
   order_hq_rejected_to_branch_manager: "state_changes",
   order_cancelled: "state_changes",
   order_auto_cancelled: "state_changes",
+  order_edited: "state_changes",
   submitted_awaiting_branch_reminder: "state_changes",
   branch_approved_awaiting_hq_reminder: "state_changes",
 };

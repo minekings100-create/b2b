@@ -27,6 +27,11 @@ export type OrderDetail = {
   total_net_cents: number;
   total_vat_cents: number;
   total_gross_cents: number;
+  // Phase 3.4 — pre-approval edit audit. `edit_count=0` means never edited.
+  edit_count: number;
+  last_edited_at: string | null;
+  last_edited_by_user_id: string | null;
+  last_edited_by_email: string | null;
   items: OrderDetailLine[];
   timeline: OrderTimelineEntry[];
 };
@@ -75,6 +80,9 @@ type RawOrder = {
   total_net_cents: number;
   total_vat_cents: number;
   total_gross_cents: number;
+  edit_count: number;
+  last_edited_at: string | null;
+  last_edited_by_user_id: string | null;
   branches:
     | { branch_code: string; name: string }
     | { branch_code: string; name: string }[]
@@ -116,6 +124,7 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
        approved_at, approved_by_user_id,
        rejection_reason, notes,
        total_net_cents, total_vat_cents, total_gross_cents,
+       edit_count, last_edited_at, last_edited_by_user_id,
        branches ( branch_code, name ),
        users!orders_created_by_user_id_fkey ( email ),
        order_items (
@@ -227,6 +236,7 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
   }
   const branchApproverEmail = await emailFor(row.branch_approved_by_user_id);
   const approverEmail = await emailFor(row.approved_by_user_id);
+  const lastEditedByEmail = await emailFor(row.last_edited_by_user_id);
 
   return {
     id: row.id,
@@ -250,6 +260,10 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     total_net_cents: row.total_net_cents,
     total_vat_cents: row.total_vat_cents,
     total_gross_cents: row.total_gross_cents,
+    edit_count: row.edit_count,
+    last_edited_at: row.last_edited_at,
+    last_edited_by_user_id: row.last_edited_by_user_id,
+    last_edited_by_email: lastEditedByEmail,
     items,
     timeline,
   };

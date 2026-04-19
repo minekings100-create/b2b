@@ -58,6 +58,7 @@ type Order = {
   created_by_user_id: string;
   branch_approved_by_user_id: string | null;
   approved_by_user_id: string | null;
+  last_edited_at: string | null;
 };
 
 async function loadOrder(
@@ -67,7 +68,7 @@ async function loadOrder(
   const { data } = await supabase
     .from("orders")
     .select(
-      "id, branch_id, status, created_by_user_id, branch_approved_by_user_id, approved_by_user_id",
+      "id, branch_id, status, created_by_user_id, branch_approved_by_user_id, approved_by_user_id, last_edited_at",
     )
     .eq("id", id)
     .is("deleted_at", null)
@@ -117,6 +118,26 @@ export async function branchApproveOrder(
   if (order.status !== "submitted") {
     return {
       error: `Can only branch-approve orders in 'submitted' state (was ${order.status})`,
+    };
+  }
+
+  // Concurrency guard (3.4 integration): if the approver rendered the
+  // form while the order was at last_edited_at = X, but the order has
+  // since been edited past X, refuse with a "refresh" error so the
+  // approver sees the updated line set before re-submitting. Empty
+  // string from the form = "didn't know the field existed" → treat as
+  // null and skip the check (legacy callers).
+  const lastEditedAtExpected = formData.get("last_edited_at_expected");
+  if (
+    lastEditedAtExpected !== null &&
+    typeof lastEditedAtExpected === "string" &&
+    lastEditedAtExpected !== "" &&
+    order.last_edited_at !== null &&
+    order.last_edited_at !== lastEditedAtExpected
+  ) {
+    return {
+      error:
+        "This order was just edited — refresh to review the latest version before approving.",
     };
   }
 

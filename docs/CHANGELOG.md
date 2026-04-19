@@ -1,5 +1,56 @@
 # Changelog
 
+## [Phase 3.4] — 2026-04-19 — order edit (pre-approval)
+
+End-to-end edit flow for `submitted` orders. Once `branch_approved` the order stays frozen — any post-step-1 change still requires reject → resubmit.
+
+### Schema (migration `20260419000002_order_edit.sql`)
+- `orders.edit_count`, `orders.last_edited_at`, `orders.last_edited_by_user_id` — pre-approval edit tracking. `submitted_at` is also bumped on each edit so the §8.8 step-1 auto-cancel timer restarts.
+- New table `order_edit_history` — append-only `(order_id, edited_at, edited_by_user_id, edit_reason, before_snapshot, after_snapshot)`. RLS: read mirrors `orders_select` (own-branch for branch users / managers; cross-branch for HQ / admin / super; packers excluded). Insert is gated to `edited_by_user_id = auth.uid()` AND (admin/super OR (creator|BM-of-branch on a `submitted` order)).
+- No update / delete policies → append-only at the Postgres layer.
+
+### Server action
+- `editOrder` (`src/lib/actions/order-edit.ts`) — gated by status (`submitted` only), role (creator / BM-of-branch / admin / super; HQ explicitly excluded), and concurrency. Computes the desired-vs-current diff and issues the right insert / update / delete mix on `order_items`. Recomputes totals, bumps `edit_count`, stamps `last_edited_at` + `last_edited_by_user_id`, resets `submitted_at`. Appends one `order_edit_history` row + one `audit_log` row (`order_edited` with line-count + total deltas). Emits `order_edited` notification to every BM of the branch. On success redirects to `/orders/[id]?saved=1`.
+
+### Concurrency guards
+- **Edit-vs-edit:** `editOrder` accepts `last_edited_at_expected`. Header UPDATE is double-guarded on `status='submitted'` AND `edit_count = expected` so two edits can't both claim the same post-increment count; the second sees 0 rows and surfaces a friendly retry.
+- **Edit-vs-approve:** `branchApproveOrder` learned `last_edited_at_expected`. If the BM rendered the approve form before the edit landed, submit fails with "This order was just edited — refresh to review the latest version." (SPEC §8.9 + journal risk #4.)
+
+### UI
+- **Edit button** on `/orders/[id]` — visible iff `status='submitted'` AND caller is creator / BM-of-branch / admin/super.
+- **`/orders/[id]/edit`** — Server Component gate + redirect for non-eligible callers, hydrates `<EditForm>` with current lines + product min/max bounds + notes.
+- **`<EditForm>`** (`_components/edit-form.client.tsx`) — local state of desired lines (qty input, remove button per row); typeahead "Add product" via `GET /api/catalog/search`; notes textarea; bottom action bar with Cancel link + Save (opens a confirm modal that spells out re-approval). Save button disabled when zero lines (per journal open question #2 — refuse, not implicit cancel).
+- **`<OrderEditHistory>`** (`src/components/app/order-edit-history.tsx`) — collapsible diff viewer below the activity timeline. Aligns Before/After by `product_id`; renders removed rows red-strikethrough, added rows green, quantity changes `old → new`. Renders only when `order.edit_count > 0`.
+- **Activity timeline** learned `order_edited` (label "Edited", payload summary `+1 line · +€4,50 total`).
+- **Bell headline** — `describeNotification("order_edited", ...)` → "Order ORD-N was edited — needs your re-approval".
+
+### Email + in-app notifications
+- New trigger `order_edited` registered in `src/lib/email/categories.ts` (category `state_changes`, not forced — folds under existing user prefs from 3.3.3a).
+- `renderOrderEdited` template — subject "Order N was edited — needs re-approval", body has line + total delta summary + CTA back to the order.
+
+### Decisions made without asking
+- **Open question #1 (BM mid-edit):** refuse + force-refresh. Matches the existing status-guarded UPDATE pattern; surfaced via the redirect-with-`?error=` banner the detail page already renders.
+- **Open question #2 (zero-line edits):** refused. Save button disabled in the UI; Zod input also rejects. Forces explicit Cancel for clearer audit trail.
+- **Open question #3 (`edit_reason` field):** schema column kept, no UI surface yet. Phase 7 can add a "Why are you editing? (optional)" field once we know if it's wanted.
+- **Concurrency primary key:** `edit_count` (monotonically increasing integer) is used in the header UPDATE guard alongside `status`. `last_edited_at` is the user-facing concurrency token in forms but `edit_count` is what the DB guard checks — strings round-trip fine but integers compare cheaper and rule out timestamp-precision quirks.
+- **Notes field:** tracked alongside the edit (saved together; no separate "edit notes" action). Empty string normalised to NULL on write.
+- **No re-snapshot of unit prices on edit.** Edits are about quantity, not re-pricing. New lines added during edit pick up the live `unit_price_cents`; existing lines keep their original snapshot. Documented in `editOrder`'s body comment.
+- **Catalog search endpoint** (`/api/catalog/search`) is session-gated, returns the first 20 active matches, escapes `%` / `_` in the ILIKE pattern. Reused by the edit page; available for future autocomplete needs.
+
+### Tests
+- **Vitest** 85/85 (was 84, +1: `describeNotification("order_edited", …)` headline).
+- **Playwright** new spec `tests-e2e/order-edit-3-4.spec.ts` (4 cases × 3 viewports = 12 tests):
+  - Creator edits a submitted order: qty change + add line + save → DB + history + audit assertions.
+  - HQ Manager cannot reach `/orders/[id]/edit` (redirect) and the Edit button isn't rendered.
+  - BM approve with stale `last_edited_at_expected` → friendly "was just edited — refresh" error banner.
+  - Refuses to save with zero lines (Save button disabled).
+
+### Follow-ups for later phases
+- **Phase 7 — `edit_reason` UI.** Schema column is plumbed; surface as an optional "Why are you editing?" field once there's product demand.
+- **Phase 7 — edit-history retention policy.** Currently keep all edits forever; revisit alongside GDPR data-retention.
+- **Phase 7 — debounce `order_edited` emails.** Repeated edits in quick succession trigger repeated notifications; fold into the 3.3.3-style preferences once it becomes annoying (journal risk #5).
+- **Phase 7 — atomicity.** `editOrder` runs sequential `delete` / `update` / `insert` against `order_items` followed by a header `update`. Supabase JS has no transaction primitive; current code is best-effort linear writes reconcilable via the `order_edit_history` snapshot if a write fails partway. Same trade-off documented for `completeOrderPack`.
+
 ## [Phase 4] — 2026-04-19 — picking & packing
 
 End-to-end packer workflow: pack queue → pick list → scan or manual pack → pallet management → complete pack with inventory accounting. Shipping (§8.4) and branch receiving (§8.5) remain separate phases.

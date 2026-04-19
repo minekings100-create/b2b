@@ -520,3 +520,58 @@ export function renderAwaitingHqApprovalReminder(input: {
   });
   return { subject, html, text };
 }
+
+// ---------------------------------------------------------------------------
+// order_edited — to: branch managers (needs re-approval after edit)
+// ---------------------------------------------------------------------------
+
+export function renderOrderEdited(input: {
+  order_id: string;
+  order_number: string;
+  branch_code: string;
+  branch_name: string;
+  editor_email: string;
+  line_delta: number;
+  total_delta_cents: number;
+}): RenderedEmail {
+  const url = orderUrl(input.order_id);
+  const subject = `Order ${input.order_number} was edited — needs re-approval`;
+  const deltaLineText =
+    input.line_delta === 0
+      ? "no line changes"
+      : `${input.line_delta > 0 ? "+" : ""}${input.line_delta} line${
+          Math.abs(input.line_delta) === 1 ? "" : "s"
+        }`;
+  const deltaTotalText =
+    input.total_delta_cents === 0
+      ? "no total change"
+      : `${input.total_delta_cents > 0 ? "+" : ""}${eur(
+          input.total_delta_cents,
+        )} total`;
+  const text = [
+    `An order was edited and needs your re-approval.`,
+    ``,
+    `Number: ${input.order_number}`,
+    `Branch: ${input.branch_code} (${input.branch_name})`,
+    `Edited by: ${input.editor_email}`,
+    `Summary: ${deltaLineText} · ${deltaTotalText}`,
+    ``,
+    `Review: ${url}`,
+  ].join("\n");
+  const html = htmlLayout({
+    preheader: `Order ${input.order_number} was edited`,
+    bodyHtml: `
+      <p style="margin:0 0 12px;font-size:16px;font-weight:600;">Order edited — re-approval needed</p>
+      <p style="margin:0 0 12px;">An order on your branch was edited and has moved back to your queue.</p>
+      <table style="width:100%;border-collapse:collapse;margin:8px 0;">
+        <tr><td style="padding:4px 0;color:#71717a;width:120px;">Number</td><td style="padding:4px 0;font-family:'Geist Mono',ui-monospace,monospace;">${escape(input.order_number)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Branch</td><td style="padding:4px 0;">${escape(input.branch_code)} · ${escape(input.branch_name)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Edited by</td><td style="padding:4px 0;">${escape(input.editor_email)}</td></tr>
+        <tr><td style="padding:4px 0;color:#71717a;">Change</td><td style="padding:4px 0;">${escape(deltaLineText)} · ${escape(deltaTotalText)}</td></tr>
+      </table>
+    `,
+    ctaUrl: url,
+    ctaLabel: "Review order →",
+  });
+  return { subject, html, text };
+}
