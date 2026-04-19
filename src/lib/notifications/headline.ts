@@ -38,6 +38,22 @@ export function describeNotification(
       return `Order ${num} auto-cancelled (timeout)`;
     case "order_edited":
       return `Order ${num} was edited — needs your re-approval`;
+    case "invoice_issued": {
+      const inv =
+        typeof payload.invoice_number === "string"
+          ? payload.invoice_number
+          : "";
+      return `Invoice ${inv} issued to your branch`;
+    }
+    case "invoice_overdue_reminder": {
+      const inv =
+        typeof payload.invoice_number === "string"
+          ? payload.invoice_number
+          : "";
+      const days =
+        typeof payload.days_overdue === "number" ? payload.days_overdue : 0;
+      return `Reminder: invoice ${inv} is ${days} days overdue`;
+    }
     case "submitted_awaiting_branch_reminder":
       return `Reminder: orders awaiting your branch approval`;
     case "branch_approved_awaiting_hq_reminder":

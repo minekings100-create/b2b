@@ -17,11 +17,13 @@ import { getUserWithRoles } from "@/lib/auth/session";
 import { isAdmin, isHqManager } from "@/lib/auth/roles";
 import { fetchOrderDetail } from "@/lib/db/order-detail";
 import { fetchOrderEditHistory } from "@/lib/db/order-edit-history";
+import { fetchOpenInvoiceForOrder } from "@/lib/db/invoices";
 import { formatCents } from "@/lib/money";
 import { ApproveForm } from "./_components/approve-form";
 import { HqApproveForm } from "./_components/hq-approve-form";
 import { RejectForm } from "./_components/reject-form";
 import { CancelForm } from "./_components/cancel-form";
+import { CreateInvoiceForm } from "./_components/create-invoice-form";
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -86,6 +88,16 @@ export default async function OrderDetailPage({
 
   const editHistory =
     order.edit_count > 0 ? await fetchOrderEditHistory(order.id) : [];
+
+  // Phase 5 — invoice integration. Show "Create draft invoice" for
+  // admins on fulfilled orders without an open invoice; otherwise link
+  // to the existing one. Branch users see only the link (read-only).
+  const invoiceableStatuses = ["packed", "shipped", "delivered", "closed"];
+  const orderIsInvoiceable = invoiceableStatuses.includes(order.status);
+  const openInvoice = orderIsInvoiceable
+    ? await fetchOpenInvoiceForOrder(order.id)
+    : null;
+  const canCreateInvoice = admin && orderIsInvoiceable && openInvoice === null;
 
   return (
     <>
@@ -271,6 +283,31 @@ export default async function OrderDetailPage({
             entries={editHistory}
             totalEdits={order.edit_count}
           />
+        ) : null}
+
+        {orderIsInvoiceable ? (
+          <section className="space-y-3" data-testid="order-invoice-section">
+            <h2 className="text-base font-semibold tracking-tight">Invoice</h2>
+            {openInvoice ? (
+              <p className="text-sm text-fg-muted">
+                Linked to invoice{" "}
+                <Link
+                  href={`/invoices/${openInvoice.id}`}
+                  className="font-numeric text-fg underline-offset-2 hover:underline"
+                  data-testid="order-invoice-link"
+                >
+                  {openInvoice.invoice_number}
+                </Link>{" "}
+                ({openInvoice.status}).
+              </p>
+            ) : canCreateInvoice ? (
+              <CreateInvoiceForm orderId={order.id} />
+            ) : (
+              <p className="text-sm text-fg-muted">
+                No invoice yet. An administrator will create one shortly.
+              </p>
+            )}
+          </section>
         ) : null}
       </div>
     </>

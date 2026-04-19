@@ -1,5 +1,60 @@
 # Changelog
 
+## [Phase 5] — 2026-04-19 — invoicing
+
+End-to-end invoice lifecycle: admin creates a draft from a fulfilled order → issues → branch managers receive an email + in-app notification → admin manually marks paid (or the nightly cron flips issued → overdue and sends +7 / +14 / +30 day reminders). Mollie / iDEAL online payments remain deferred to Phase 6.
+
+### Schema
+- No new migration. Phase 1.5's `20260417000009_billing.sql` already has `invoices`, `invoice_items`, `payments` with full RLS (read: admin/super global + branch own; write: admin/super). Phase 5 just fills them in.
+
+### Server actions (`src/lib/actions/invoices.ts`)
+- `createDraftInvoiceFromOrder` — admin-only. Refuses if the order isn't in a fulfilment stage (`packed` / `shipped` / `delivered` / `closed`) or if a non-cancelled invoice already exists for the order (1:1 order↔invoice). Snapshots `SKU · name` into `invoice_items.description` so future product renames don't rewrite issued invoices. Redirects to `/invoices/[id]` on success.
+- `issueInvoice` — `draft → issued`. Sets `issued_at=now`, `due_at=issued_at + 30 calendar days`. Status-guarded UPDATE. Writes audit row + emits `invoice_issued` email + in-app notification to every BM of the branch.
+- `markInvoicePaid` — admin-confirmed manual payment. `issued/overdue → paid`. Records a `payments` row (method + optional reference) and stamps `payment_method` + `paid_at`. Not a real-money mutation — Mollie's webhook-driven path is Phase 6 and intentionally separate.
+- `cancelInvoice` — `draft/issued/overdue → cancelled`. Terminal; reopening a cancelled invoice is explicitly out of scope (create a new draft instead).
+
+### PDFs
+- **Invoice PDF** (`src/lib/pdf/invoice.tsx` + `/api/pdf/invoice/[invoiceId]`) — A4 portrait, light-mode only (SPEC §4: PDFs are print-safe). Masthead with `COMPANY.*` (name/address/KvK/BTW/phone/email), Bill-to card with the branch, Dates card (Issued / Due / Status), lines table with per-line VAT + gross, totals block. Placeholders in `COMPANY` render only when non-`[PLACEHOLDER]` — empty strings never leak onto the PDF.
+- Reuses the `@react-pdf/renderer` + `runtime: "nodejs"` pattern already established for pallet labels + pick lists.
+
+### Pages
+- **`/invoices`** — filter chips (All / Draft / Issued / Overdue / Paid / Cancelled) backed by `?status=`, table with links to each invoice. Admin sees all branches; branch users see their own via RLS. Branch users never see the admin filter chips as admin actions.
+- **`/invoices/[id]`** — full detail (bill-to meta, lines, totals, admin action bar, payments ledger, activity timeline).
+- **Order detail** — new "Invoice" section surfaces on `packed / shipped / delivered / closed` orders. Admin sees "Create draft invoice" when none exists, a link to the existing invoice otherwise. Branch users see the link only.
+- **`InvoiceStatusPill`** — new component; mirrors `OrderStatusPill`'s shape. Colours: zinc / blue / red / emerald / red-muted for draft / issued / overdue / paid / cancelled.
+
+### Notifications + email
+- New triggers `invoice_issued` and `invoice_overdue_reminder` registered in `src/lib/email/categories.ts` (category `state_changes`, not forced — folds under existing 3.3.3a prefs).
+- `renderInvoiceIssued` template and `renderInvoiceOverdueReminder` template with per-call `days_overdue` variable.
+- `describeNotification` headline + `ActivityTimeline.describeAction` labels + payload summary (invoice number) for every invoice action: `invoice_draft_created / invoice_issued / invoice_paid / invoice_cancelled / invoice_overdue / invoice_reminder`.
+
+### Overdue cron (`/api/cron/overdue-invoices`)
+- Schedule: `0 1 * * *` UTC = **02:00 Europe/Amsterdam winter / 03:00 summer** (same DST drift as the other crons — tracked in BACKLOG Phase 7 polish).
+- **Flip pass:** every `issued` invoice past `due_at` flipped to `overdue` with a status-guarded UPDATE + audit row.
+- **Reminder pass:** for every `overdue` invoice, compute `days_overdue`; if `∈ {7, 14, 30}` and no prior `invoice_reminder` audit row carries the same `days_overdue`, send an email + in-app notification + write the audit row. Fully idempotent — re-running the cron on the same day is a no-op.
+
+### Decisions made without asking
+- **Shipping deferred — invoices created manually.** Phase 4.1 will still auto-create on `packed → shipped`; until then the admin action works from any fulfilled order. Matches "build end-to-end" without pulling shipping scope into this PR.
+- **30 calendar days for `due_at`.** SPEC §3 didn't specify a fixed term; "Net 30" is the Dutch B2B standard. Working-days helper used elsewhere (auto-cancel timers) isn't reused here — invoices traditionally reason in calendar days.
+- **Idempotent reminders via audit-log lookup** rather than a column on `invoices`. Keeps the schema unchanged + keeps the cron source of truth in the audit trail.
+- **Description denormalisation.** `invoice_items.description` stores `${sku} · ${name}` captured at invoice-create time. Issued invoices don't rewrite if a product is later renamed.
+- **`payment_method` selector limited** to `manual_bank_transfer / credit_note / other` in the UI. `ideal_mollie` is reachable by the Phase 6 webhook, not by manual action.
+- **1:1 order↔invoice enforced at the action layer.** The schema allows multiple invoices per order (useful for future split-invoicing), but for v1 the server action refuses a second non-cancelled invoice. Cancel the existing one first if you need to re-issue.
+
+### Tests
+- Vitest 85/85 (no change — pure-logic helpers for invoices are thin; full coverage via Playwright).
+- Playwright new spec `tests-e2e/invoices-phase-5.spec.ts` (4 cases × 3 viewports = 12 new tests):
+  - Admin happy path: create draft → issue (asserts due_at = +30 days) → mark paid (asserts payment row + full audit sequence `invoice_draft_created / invoice_issued / invoice_paid`).
+  - Branch user can read the invoice but never sees admin action buttons.
+  - Filter chips narrow the list to a status.
+  - Second-invoice prevention: after one invoice exists, the "Create" button is replaced by a link.
+
+### Follow-ups for later phases
+- **Phase 4.1** — auto-create a draft on `packed → shipped`. The manual action stays as admin's primary tool.
+- **Phase 6** — Mollie iDEAL flow: payment create → redirect → webhook confirms → status flips via the webhook (NOT the manual `markInvoicePaid` path). Payment rows carry `method: 'ideal_mollie'` + `mollie_payment_id` on the invoice.
+- **Phase 7** — sortable column headers on `/invoices` (listed under existing BACKLOG entry for sortable order-table headers — same pattern applies).
+- **Phase 7** — `pdf_path` persistence. `invoices.pdf_path` is plumbed but unused; the PDF is currently rendered on-demand per request. A future optimisation is to cache the issued PDF to Supabase Storage.
+
 ## [Phase 3.4] — 2026-04-19 — order edit (pre-approval)
 
 End-to-end edit flow for `submitted` orders. Once `branch_approved` the order stays frozen — any post-step-1 change still requires reject → resubmit.

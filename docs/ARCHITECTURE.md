@@ -79,6 +79,18 @@ Per-user opt-in/out for email + in-app notifications, plus an HMAC-signed unsubs
 - **Email footer:** `src/lib/email/templates/_layout.ts` `htmlLayout` + `textFooter` inject per-recipient unsubscribe + prefs links using `{{UNSUBSCRIBE_URL}}` and `{{PREFS_URL}}` placeholders. `notify()` substitutes them at send time so templates stay pure (one render per trigger).
 - **Company identity:** `src/config/company.ts` is the single import site for legal name, KvK, addresses, support email, website. `[PLACEHOLDER]` values are listed in `docs/CHANGELOG.md` under "pre-production fill-ins".
 
+### Invoicing (Phase 5)
+
+End-to-end admin-driven invoice lifecycle. Schema already existed from Phase 1.5; Phase 5 fills in actions, PDFs, pages, cron.
+
+- **Lifecycle:** `draft → issued → paid` (admin manual) + `issued → overdue` (cron) + `* → cancelled` (admin).
+- **`src/lib/actions/invoices.ts`** — `createDraftInvoiceFromOrder / issueInvoice / markInvoicePaid / cancelInvoice`. All admin-only (RLS enforces at Postgres; role check gives friendly errors). Status-guarded UPDATEs for every transition. `createDraftInvoiceFromOrder` redirects to `/invoices/[id]` on success via Next's `redirect()` (same pattern as editOrder / saved-order-edit flow).
+- **PDF** (`src/lib/pdf/invoice.tsx` + `/api/pdf/invoice/[invoiceId]`) — A4 portrait, light-mode only, Node runtime. Pulls company identity from `src/config/company.ts`; `[PLACEHOLDER]` values are hidden rather than leaked onto paper.
+- **Pages** — `/invoices` list with filter chips, `/invoices/[id]` detail with admin action bar + payments ledger + activity timeline. Order detail page grows a new "Invoice" section on fulfilled orders (create button for admins, link for everyone else).
+- **Cron** (`/api/cron/overdue-invoices`) — runs `0 1 * * *` UTC (02:00 Europe/Amsterdam winter). Two passes: flip newly-overdue invoices, then send reminder emails at 7 / 14 / 30 days overdue. Reminder dedupe is audit-log driven — re-running the cron same day is a no-op.
+- **Notifications** — new triggers `invoice_issued` + `invoice_overdue_reminder` registered in `src/lib/email/categories.ts` (state_changes, not forced). Recipients = branch managers of the invoice's branch.
+- **Order↔invoice link** — `invoices.order_id` FK is `on delete set null`; manual 1:1 enforcement at the action layer for v1. Schema doesn't preclude split-invoicing in a future phase.
+
 ### Order edit (Phase 3.4)
 
 A `submitted` order can be edited until the BM moves it to `branch_approved`. After that the order is frozen for the rest of its lifecycle.

@@ -37,6 +37,8 @@ export type NotificationTriggerType =
   | "order_cancelled"
   | "order_auto_cancelled"
   | "order_edited"
+  | "invoice_issued"
+  | "invoice_overdue_reminder"
   | "submitted_awaiting_branch_reminder"
   | "branch_approved_awaiting_hq_reminder";
 
@@ -62,6 +64,8 @@ export const TRIGGER_CATEGORY: Record<
   order_cancelled: "state_changes",
   order_auto_cancelled: "state_changes",
   order_edited: "state_changes",
+  invoice_issued: "state_changes",
+  invoice_overdue_reminder: "state_changes",
   submitted_awaiting_branch_reminder: "state_changes",
   branch_approved_awaiting_hq_reminder: "state_changes",
 };
