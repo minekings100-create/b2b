@@ -79,6 +79,23 @@ Per-user opt-in/out for email + in-app notifications, plus an HMAC-signed unsubs
 - **Email footer:** `src/lib/email/templates/_layout.ts` `htmlLayout` + `textFooter` inject per-recipient unsubscribe + prefs links using `{{UNSUBSCRIBE_URL}}` and `{{PREFS_URL}}` placeholders. `notify()` substitutes them at send time so templates stay pure (one render per trigger).
 - **Company identity:** `src/config/company.ts` is the single import site for legal name, KvK, addresses, support email, website. `[PLACEHOLDER]` values are listed in `docs/CHANGELOG.md` under "pre-production fill-ins".
 
+### Online payments + RMA (Phase 6)
+
+**Mollie (mock)** — adapter-pattern payment gateway.
+
+- `src/lib/payments/transport.ts` defines `PaymentTransport` + a `mockTransport()` that issues `tr_mock_*` ids and returns a local `/mollie-mock/checkout?...` URL. Cutover to real Mollie is a one-file swap (+ env var + webhook-signature verification, both tagged as Phase-6 PAUSE triggers).
+- `src/lib/actions/mollie-payments.ts` (`payInvoiceWithMollie`) validates + stamps `invoices.mollie_payment_id` + redirects to the checkout URL.
+- `/api/webhooks/mollie` (POST) flips `issued/overdue → paid` under a status guard, records a `payments` row with `method='ideal_mollie'`, and audits both the webhook receipt and the state flip. Accepts JSON (mock) and form-urlencoded (real Mollie shape) — live Mollie adds signature verification in the follow-up PR.
+- `/mollie-mock/checkout` is a dev-only page with two buttons that POST to the real webhook.
+
+**RMA state machine** — `requested → approved|rejected`, `approved → received`, `received → closed`.
+
+- `src/lib/actions/returns.ts` — `createReturn` / `approveReturn` / `rejectReturn` / `receiveReturn` / `closeReturn`. All status-guarded; all write an `audit_log` row; all emit a notification.
+- `receiveReturn` writes per-item `return_in` inventory movements when admin flags restock, and auto-creates a replacement order at `status='approved'` for `replace` resolutions (SPEC §8.7 step 3).
+- Money resolutions (`refund`, `credit_note`) are persisted at receive time but NOT executed — UI disables the dropdown options with a "Phase 6 follow-up" label.
+- Pages: `/returns` list + `/returns/new?order_id=…` + `/returns/[id]`. Order detail grows an "Open a return" button on `delivered / closed` orders.
+- `ReturnStatusPill` component follows the Order + Invoice pill shape.
+
 ### Invoicing (Phase 5)
 
 End-to-end admin-driven invoice lifecycle. Schema already existed from Phase 1.5; Phase 5 fills in actions, PDFs, pages, cron.

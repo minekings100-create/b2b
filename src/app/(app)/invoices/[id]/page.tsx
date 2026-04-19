@@ -19,6 +19,7 @@ import { fetchInvoiceDetail } from "@/lib/db/invoices";
 import { formatCents } from "@/lib/money";
 
 import { InvoiceActions } from "./_components/invoice-actions.client";
+import { PayInvoiceButton } from "./_components/pay-invoice-button.client";
 
 export const metadata = { title: "Invoice" };
 
@@ -177,9 +178,21 @@ export default async function InvoiceDetailPage({
           </span>
         </section>
 
+        {(invoice.status === "issued" || invoice.status === "overdue") &&
+        invoice.total_gross_cents > 0 ? (
+          <section className="space-y-3">
+            <h2 className="text-base font-semibold tracking-tight">Pay</h2>
+            <PayInvoiceButton invoiceId={invoice.id} />
+            <p className="text-xs text-fg-subtle">
+              Redirects to iDEAL via Mollie. In development this routes
+              through a mock checkout; production would use Mollie directly.
+            </p>
+          </section>
+        ) : null}
+
         {admin ? (
           <section className="space-y-3">
-            <h2 className="text-base font-semibold tracking-tight">Actions</h2>
+            <h2 className="text-base font-semibold tracking-tight">Admin actions</h2>
             <InvoiceActions
               invoiceId={invoice.id}
               status={invoice.status}

@@ -54,6 +54,28 @@ export function describeNotification(
         typeof payload.days_overdue === "number" ? payload.days_overdue : 0;
       return `Reminder: invoice ${inv} is ${days} days overdue`;
     }
+    case "return_requested": {
+      const rma =
+        typeof payload.rma_number === "string" ? payload.rma_number : "";
+      const br =
+        typeof payload.branch_code === "string" ? payload.branch_code : "";
+      return `New return ${rma} from ${br}`;
+    }
+    case "return_approved": {
+      const rma =
+        typeof payload.rma_number === "string" ? payload.rma_number : "";
+      return `Return ${rma} approved`;
+    }
+    case "return_rejected": {
+      const rma =
+        typeof payload.rma_number === "string" ? payload.rma_number : "";
+      return `Return ${rma} rejected${reason ? ` — ${truncate(reason, 60)}` : ""}`;
+    }
+    case "return_received": {
+      const rma =
+        typeof payload.rma_number === "string" ? payload.rma_number : "";
+      return `Return ${rma} received`;
+    }
     case "submitted_awaiting_branch_reminder":
       return `Reminder: orders awaiting your branch approval`;
     case "branch_approved_awaiting_hq_reminder":

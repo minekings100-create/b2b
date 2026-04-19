@@ -1,5 +1,72 @@
 # Changelog
 
+## [Phase 6] — 2026-04-20 — Mollie (mock) payments + RMA
+
+End-to-end online-payment UX via an adapter-pattern Mollie transport (mock in dev, real Mollie when credentials land) + full RMA state machine minus the money resolutions. Refund / credit_note resolutions are recorded but NOT executed this PR — explicit follow-up documented below.
+
+### Scope decision (up-front, per the PR gate rules)
+**Adapter-only Mollie for this PR.** Same pattern as 3.3.1's email transport: mock in dev, real gateway behind an env flag later. Reasoning:
+- No new env var, no real credential handling — nothing in the Phase-6 PAUSE list gets tripped.
+- Shipping a mock lets the full UX (Pay button → checkout → webhook → status flip → payment row) land with automated test coverage.
+- Cutover to live Mollie is a one-file edit in `src/lib/payments/transport.ts` + an env var + webhook-signature verification — all three explicitly tagged as PAUSE triggers for the follow-up PR.
+
+### Mollie adapter + flow
+- **`src/lib/payments/transport.ts`** — `PaymentTransport` interface + `mockTransport()` issuer. Returns a `tr_mock_*` provider id (shape matches Mollie's `tr_*`) and a local `/mollie-mock/checkout?...` URL.
+- **`src/lib/actions/mollie-payments.ts`** — `payInvoiceWithMollie`. Session-gated (branch users initiate); validates invoice in `issued`/`overdue`; stashes provider id on `invoices.mollie_payment_id` + writes `mollie_payment_created` audit row; redirects to the checkout URL.
+- **`src/app/api/webhooks/mollie/route.ts`** — POST handler. Accepts both form-urlencoded (real Mollie shape) and JSON (mock). Flips `issued/overdue → paid` on `status=paid` with status-guarded UPDATE, records a `payments` row with `method='ideal_mollie'`, audits both the webhook receipt (`mollie_webhook_received`) and the state flip (`invoice_paid`). Idempotent: re-calls on an already-paid invoice no-op.
+- **`src/app/mollie-mock/checkout/page.tsx`** — two-button checkout screen (Simulate paid / Simulate failed). POSTs to the real webhook route, exercising the same handler Mollie will call. Page is visibly labelled "Mock checkout · not a real payment".
+- **`PayInvoiceButton`** (client) on `/invoices/[id]` for any caller who can see the invoice when status is issued/overdue and total > 0. Admin's existing Mark-paid + Cancel bar stays intact for the out-of-band path.
+
+### RMA state machine
+- **Schema** — no migration needed. Phase 1.5's `20260417000010_returns.sql` already has `returns` + `return_items` + enums + full RLS.
+- **`src/lib/actions/returns.ts`** —
+  - `createReturn` (branch_user / branch_manager / admin / super on own branch) — allocates `RMA-YYYY-NNNNN`, inserts the row via the session client so `returns_insert` RLS fires, bounds quantities to original approved qty, emits `return_requested` to admin audience.
+  - `approveReturn` (admin) — `requested → approved`, emits `return_approved` to the requester.
+  - `rejectReturn` (admin) — `requested → rejected` with a required one-line reason stored in `notes`; emits `return_rejected` with the reason.
+  - `receiveReturn` (admin) — `approved → received`. Per-item: admin picks resolution (`replace` actionable; `refund` / `credit_note` accepted in the data model but NOT executed) + `restock` checkbox. Restocked items write a `return_in` inventory movement and bump `quantity_on_hand`. Replace items auto-create a linked replacement order at `status='approved'` (skips the approval queue per SPEC §8.7 step 3, with notes `Replacement for RMA-…` + `order_replacement_created` audit row).
+  - `closeReturn` (admin) — `received → closed` + stamps `processed_at`.
+- **`src/lib/db/returns.ts`** — list + detail + `fetchReturnableLinesForOrder` (sums already-returned quantities across non-rejected returns so the new-return form can bound the user).
+- **Pages** — `/returns` (filter chips + table), `/returns/new?order_id=…` (per-line qty + condition picker), `/returns/[id]` (items + admin action bar + activity timeline).
+- **Order detail integration** — new "Open a return" button on `delivered`/`closed` orders for anyone with branch scope.
+- **`ReturnStatusPill`** component mirrors the Order + Invoice pill shape.
+
+### Notifications + email
+- New trigger types: `return_requested`, `return_approved`, `return_rejected`, `return_received`. All registered in `src/lib/email/categories.ts` (category `state_changes`, not forced — folds under existing 3.3.3a prefs).
+- Four render functions + headline strings + activity-timeline labels (`return_requested`, `return_approved`, `return_rejected`, `return_received`, `return_closed`, `order_replacement_created`, `mollie_payment_created`, `mollie_webhook_received`, `invoice_paid`).
+
+### Decisions made without asking
+- **Adapter pattern for Mollie** (see scope decision above).
+- **Webhook accepts mock JSON shape** in addition to real Mollie's form-encoded `id`-only body. When live Mollie arrives, a signature check + Mollie API fetch replace the JSON branch — that code lives behind the Phase-6 PAUSE rule.
+- **Refund + credit_note resolutions are recorded, not executed.** UI dropdown shows both options as disabled with the label "Phase 6 follow-up"; server action accepts the value but doesn't execute any money path. Admin can still record intent; the money flow ships in the follow-up PR once the credit-note schema + negative invoice-line support land.
+- **Replacement order creates ONE new order per receive** with every replace-flagged item on it. Simpler to reason about than splitting into one-order-per-line. Skips the approval queue (SPEC §8.7 step 3).
+- **`restock` is a per-item admin flag** on the receive form, not derived from condition. Admin decides whether the returned item is back on the shelf regardless of `damaged / wrong_item / surplus / other` — real-world judgment often cuts across the condition axis.
+- **Rejection reason is required** (min 3 chars). Branch user has to see why.
+- **RMA numbering** `RMA-YYYY-NNNNN` via `allocate_sequence('rma_<year>')` — same pattern as orders / invoices / pallets.
+
+### Tests
+- **Vitest** 85/85 (unchanged — new code is DB-integrated, covered via Playwright).
+- **Playwright** new spec `tests-e2e/phase-6-payments-rma.spec.ts` (5 cases × 3 viewports = 15 new tests):
+  - Branch user pays an issued invoice via mock Mollie → webhook → invoice paid + payment row with `method='ideal_mollie'` + `reference` starts `tr_mock_`.
+  - Failed webhook leaves the invoice at `issued` (no-op).
+  - Full RMA flow: create → approve → receive (replace + restock) → close. Asserts inventory bump + replacement order creation.
+  - Reject flow with required reason, visible to the branch user on the detail page.
+  - Refund / credit_note options are disabled in the receive form.
+
+### PAUSE triggers NOT hit this PR
+Per the Phase-6 gate rules, none of the following were triggered:
+- ❌ New migration (schema pre-existed from 1.5)
+- ❌ Mollie API key env var (mock transport has no keys)
+- ❌ Webhook signature verification (mock handler trusts the body; flagged in its doc)
+- ❌ Refund / credit_note money flows (recorded only, not executed)
+- ❌ Mutating a hypothetical `invoices.paid_amount` (column doesn't exist; webhook flips `invoices.status → paid` and inserts a `payments` row, matching existing `markInvoicePaid` admin bookkeeping semantics)
+
+### Follow-ups for later PRs
+- **Live Mollie** — replace `mockTransport()` with a `@mollie/api-client`-backed implementation, add `MOLLIE_API_KEY` to `docs/ENV.md`, implement webhook-signature verification (PAUSE trigger). Cutover is deliberate: ship live credentials + signature in one PR reviewed under the PAUSE gate.
+- **Refund resolution** — create credit-note invoice (negative lines), apply to the original invoice (mutate money territory → PAUSE). Data model (`return_item.resolution='refund'`) is already persisted at receive time.
+- **Credit-note resolution** — generate credit balance against the branch, apply to next open invoice. Same PAUSE gate.
+- **Bugfix** — cancel-draft-invoice should discard instead of archive (see BACKLOG Phase 5 entry added earlier in this phase).
+- **Sortable column headers on `/returns`** — follows the same BACKLOG pattern already queued for orders / invoices.
+
 ## [Phase 5] — 2026-04-19 — invoicing
 
 End-to-end invoice lifecycle: admin creates a draft from a fulfilled order → issues → branch managers receive an email + in-app notification → admin manually marks paid (or the nightly cron flips issued → overdue and sends +7 / +14 / +30 day reminders). Mollie / iDEAL online payments remain deferred to Phase 6.

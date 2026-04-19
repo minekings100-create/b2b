@@ -130,7 +130,20 @@ When a packer taps/clicks an item on the pack queue or pick list, expand an inli
 
 ## Phase 5 — Invoicing
 
-_(none yet)_
+### Bugfix: draft invoice cancel leaves a permanent `cancelled` row
+_Captured: 2026-04-19. Small PR after Phase 6 merges._
+
+Today `cancelInvoice` flips the status to `cancelled` regardless of the current state — including drafts. But drafts have no issued invoice number that's been handed out to a branch, and they aren't legally existent yet. A cancelled-as-permanent-trail row is the right behaviour for `issued`+ statuses (gap-less numbering + fiscal audit), but it's the wrong default for drafts: the user wanted to discard the draft, not archive a permanent record of it.
+
+**Fix scope:**
+- Split `cancelInvoice` into two branches based on current status:
+  - `draft` → hard delete (or soft-delete hidden from UI; whichever matches the existing archive-pattern call from BACKLOG's cross-cutting Archive/Restore entry).
+  - `issued` / `overdue` → stay on the current `cancelled`-is-permanent path.
+- UI button label adapts: "Discard draft" vs "Cancel invoice". Same slot in `InvoiceActions`, different wording + confirm-modal copy.
+- Audit log writes `invoice_discarded` for the draft path (distinct action name) so the timeline can tell the two flows apart.
+- Preserve the gap in the `invoices_YYYY` numbering sequence when a draft is discarded — don't try to reclaim the allocated number (gap-less is only enforced for issued invoices in practice).
+
+**Why not now:** Phase 6 (Mollie iDEAL + RMA) is the next scheduled phase; this is a small polish that's safer as its own PR.
 
 ## Phase 6 — Online payment & RMA
 
