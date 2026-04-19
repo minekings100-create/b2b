@@ -17,7 +17,10 @@ import {
  * Phase 5 — admin action bar on `/invoices/[id]`.
  *
  * Buttons appear / hide based on the invoice's status:
- *   draft           → Issue, Cancel
+ *   draft           → Issue (Cancel intentionally NOT rendered — drafts
+ *                     map to a fulfilled order and aren't discardable;
+ *                     see BACKLOG Phase 5 entry "Cancel button should
+ *                     not appear on drafts" for context.)
  *   issued/overdue  → Mark paid (with method selector), Cancel
  *   paid/cancelled  → no actions (terminal)
  */
@@ -32,7 +35,6 @@ export function InvoiceActions({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <IssueForm invoiceId={invoiceId} />
-        <CancelForm invoiceId={invoiceId} />
       </div>
     );
   }

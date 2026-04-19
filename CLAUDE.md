@@ -41,6 +41,19 @@ If you want to deviate from §4 for a specific reason, flag it and ask — do no
 7. Open a PR with a clear description referencing the phase and the SPEC sections covered.
 8. Wait for explicit approval before moving to the next phase.
 
+## Test discipline
+
+Default test cadence per PR. Saves 10–15 min per run + cuts cross-spec flake risk on small viewports.
+
+- **Vitest:** always, full suite (`npx vitest run`). Cheap and informative.
+- **Playwright:** default to `--project=desktop-1440` only. Skip `tablet-768` and `mobile-375` by default.
+- **Full 3-viewport Playwright run** only when one of:
+  - The PR touches responsive layout (sidebar, table widths, modal sizing, mobile-specific components, anything inside an `@media` query or breakpoint-prefixed Tailwind class).
+  - The user explicitly asks for a full run.
+  - Pre-release / Phase 7 polish.
+
+If unsure whether a change is "responsive," default to desktop-only and call it out in the PR. The user can ask for a full run before merge.
+
 ## Communication
 
 - Keep replies concise. Show diffs, not full files, unless asked.
