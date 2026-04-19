@@ -29,7 +29,7 @@ Phase 3 splits into 3.1 / 3.2 / 3.2.1 / 3.2.2{a,b,c} / 3.3.{1,2,3} (already ship
 | 3.3.1 | Resend integration + transactional triggers | ✅ merged (PR #20) |
 | 3.3.2 | In-app notification centre (bell + dropdown) | 🟡 PR open (this branch) |
 | 3.3.3 | Email preferences + polished templates + unsubscribe + legal | ⚪ planned |
-| **3.4** | **Order edit (pre-approval)** | ⚪ **planned (NEW, accepted 2026-04-19)** |
+| **3.4** | **Order edit (pre-approval)** | 🟡 in PR — schema (`edit_count` + `last_edited_*` + `order_edit_history`), `editOrder` action with double-guarded concurrency, `/orders/[id]/edit` UI, `<OrderEditHistory>` diff viewer, BM-approve mid-edit guard, `order_edited` notification + email + headline + timeline integration. |
 | 4 | Picking & packing | 🟡 in PR — scope: pick queue, scan / manual pack, pallet management, pallet label + pick list PDFs. Shipping (§8.4) + receiving (§8.5) deferred to 4.1 / 4.2. |
 | 5 | Invoicing | ⚪ planned |
 | 6 | Online payment & RMA | ⚪ planned |

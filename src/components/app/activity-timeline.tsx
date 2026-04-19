@@ -134,6 +134,8 @@ function describeAction(action: string): string {
       return "Auto-cancelled (branch timeout)";
     case "auto_cancel_no_hq_approval":
       return "Auto-cancelled (HQ timeout)";
+    case "order_edited":
+      return "Edited";
     case "cart_add":
       return "Added to cart";
     case "cart_update_qty":
@@ -197,6 +199,31 @@ function summarisePayload(action: string, payload: Json | null): string {
   }
   if (action === "invoice_issue" && typeof obj.invoice_number === "string") {
     return `as ${obj.invoice_number}`;
+  }
+  if (action === "order_edited") {
+    // `after_json` for order_edited carries line_delta + total_delta_cents
+    // (see src/lib/actions/order-edit.ts). Summarise as "+1 line · +€1,20"
+    // or similar — empty string when both deltas are zero.
+    const lineDelta =
+      typeof obj.line_delta === "number" ? obj.line_delta : 0;
+    const totalDelta =
+      typeof obj.total_delta_cents === "number" ? obj.total_delta_cents : 0;
+    const parts: string[] = [];
+    if (lineDelta !== 0) {
+      parts.push(
+        `${lineDelta > 0 ? "+" : ""}${lineDelta} line${
+          Math.abs(lineDelta) === 1 ? "" : "s"
+        }`,
+      );
+    }
+    if (totalDelta !== 0) {
+      const eur = new Intl.NumberFormat("nl-NL", {
+        style: "currency",
+        currency: "EUR",
+      }).format(Math.abs(totalDelta) / 100);
+      parts.push(`${totalDelta > 0 ? "+" : "−"}${eur} total`);
+    }
+    return parts.join(" · ");
   }
   return "";
 }

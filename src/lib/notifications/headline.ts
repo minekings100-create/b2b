@@ -36,6 +36,8 @@ export function describeNotification(
       return `Order ${num} was cancelled`;
     case "order_auto_cancelled":
       return `Order ${num} auto-cancelled (timeout)`;
+    case "order_edited":
+      return `Order ${num} was edited — needs your re-approval`;
     case "submitted_awaiting_branch_reminder":
       return `Reminder: orders awaiting your branch approval`;
     case "branch_approved_awaiting_hq_reminder":

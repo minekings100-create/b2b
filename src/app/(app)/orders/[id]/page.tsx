@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, AlertCircle } from "lucide-react";
+import { ChevronLeft, AlertCircle, Pencil } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import {
   Table,
@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/table";
 import { OrderStatusPill } from "@/components/app/order-status-pill";
 import { ActivityTimeline } from "@/components/app/activity-timeline";
+import { OrderEditHistory } from "@/components/app/order-edit-history";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { isAdmin, isHqManager } from "@/lib/auth/roles";
 import { fetchOrderDetail } from "@/lib/db/order-detail";
+import { fetchOrderEditHistory } from "@/lib/db/order-edit-history";
 import { formatCents } from "@/lib/money";
 import { ApproveForm } from "./_components/approve-form";
 import { HqApproveForm } from "./_components/hq-approve-form";
@@ -75,6 +77,16 @@ export default async function OrderDetailPage({
   ];
   const showCancel = canCancel && cancelEligibleStatuses.includes(order.status);
 
+  // Phase 3.4 — Edit is available while the order is `submitted` and the
+  // caller is creator / BM-of-branch / admin. HQ Manager CANNOT edit
+  // (SPEC §8.9: HQ is only approve/reject at step 2).
+  const isCreator = order.created_by_user_id === session.user.id;
+  const canEdit =
+    order.status === "submitted" && (admin || isMyBranchManager || isCreator);
+
+  const editHistory =
+    order.edit_count > 0 ? await fetchOrderEditHistory(order.id) : [];
+
   return (
     <>
       <PageHeader
@@ -85,13 +97,25 @@ export default async function OrderDetailPage({
           { label: order.order_number },
         ]}
         actions={
-          <Link
-            href="/orders"
-            className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            Back
-          </Link>
+          <>
+            <Link
+              href="/orders"
+              className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Back
+            </Link>
+            {canEdit ? (
+              <Link
+                href={`/orders/${order.id}/edit`}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-surface px-2.5 text-xs font-medium text-fg ring-1 ring-inset ring-border hover:bg-surface-elevated"
+                data-testid="order-edit-button"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit
+              </Link>
+            ) : null}
+          </>
         }
       />
 
@@ -163,7 +187,11 @@ export default async function OrderDetailPage({
               <h2 className="text-base font-semibold tracking-tight">
                 Branch review (step 1)
               </h2>
-              <ApproveForm orderId={order.id} items={order.items} />
+              <ApproveForm
+                orderId={order.id}
+                items={order.items}
+                lastEditedAt={order.last_edited_at}
+              />
             </section>
             <div className="flex flex-wrap items-center gap-2">
               <RejectForm orderId={order.id} />
@@ -237,6 +265,13 @@ export default async function OrderDetailPage({
             emptyHint="No activity recorded yet."
           />
         </section>
+
+        {order.edit_count > 0 ? (
+          <OrderEditHistory
+            entries={editHistory}
+            totalEdits={order.edit_count}
+          />
+        ) : null}
       </div>
     </>
   );

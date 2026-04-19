@@ -100,6 +100,16 @@ describe("describeNotification", () => {
     ).toBe("Order ORD-1 auto-cancelled (timeout)");
   });
 
+  it("order_edited prompts re-approval", () => {
+    expect(
+      describeNotification("order_edited", {
+        order_number: "ORD-99",
+        line_delta: 1,
+        total_delta_cents: 450,
+      }),
+    ).toBe("Order ORD-99 was edited — needs your re-approval");
+  });
+
   it("digest reminders read as reminders, not order references", () => {
     expect(
       describeNotification("submitted_awaiting_branch_reminder", {}),
