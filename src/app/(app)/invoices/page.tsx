@@ -14,9 +14,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { InvoiceStatusPill } from "@/components/app/invoice-status-pill";
+import { SortableHeader } from "@/components/app/sortable-header";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { fetchVisibleInvoices, INVOICE_STATUSES } from "@/lib/db/invoices";
+import {
+  fetchVisibleInvoices,
+  INVOICE_STATUSES,
+  INVOICES_SORTABLE_COLUMNS,
+  type InvoicesSortColumn,
+} from "@/lib/db/invoices";
 import { formatCents } from "@/lib/money";
+import { parseSortParam } from "@/lib/url/sort";
 
 import {
   InvoiceStatusFilterChips,
@@ -40,7 +47,7 @@ function formatDate(iso: string | null) {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: { status?: string };
+  searchParams: { status?: string; sort?: string; dir?: string };
 }) {
   const session = await getUserWithRoles();
   if (!session) redirect("/login");
@@ -51,7 +58,14 @@ export default async function InvoicesPage({
     : null;
   const activeFilter: InvoiceStatusFilter | "all" = status ?? "all";
 
-  const rows = await fetchVisibleInvoices(status);
+  const sort = parseSortParam<InvoicesSortColumn>(
+    { sort: searchParams.sort, dir: searchParams.dir },
+    INVOICES_SORTABLE_COLUMNS,
+    null,
+  );
+
+  const rows = await fetchVisibleInvoices(status, sort);
+  const preserve = { status: status ?? null };
 
   return (
     <>
@@ -75,13 +89,58 @@ export default async function InvoicesPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Invoice</TableHead>
+                <SortableHeader
+                  basePath="/invoices"
+                  column="invoice_number"
+                  current={sort}
+                  preserveParams={preserve}
+                >
+                  Invoice
+                </SortableHeader>
                 <TableHead>Order</TableHead>
-                <TableHead>Branch</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Issued</TableHead>
-                <TableHead className="text-right">Due</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <SortableHeader
+                  basePath="/invoices"
+                  column="branch"
+                  current={sort}
+                  preserveParams={preserve}
+                >
+                  Branch
+                </SortableHeader>
+                <SortableHeader
+                  basePath="/invoices"
+                  column="status"
+                  current={sort}
+                  preserveParams={preserve}
+                >
+                  Status
+                </SortableHeader>
+                <SortableHeader
+                  basePath="/invoices"
+                  column="issued_at"
+                  current={sort}
+                  preserveParams={preserve}
+                  align="right"
+                >
+                  Issued
+                </SortableHeader>
+                <SortableHeader
+                  basePath="/invoices"
+                  column="due_at"
+                  current={sort}
+                  preserveParams={preserve}
+                  align="right"
+                >
+                  Due
+                </SortableHeader>
+                <SortableHeader
+                  basePath="/invoices"
+                  column="total_gross_cents"
+                  current={sort}
+                  preserveParams={preserve}
+                  align="right"
+                >
+                  Total
+                </SortableHeader>
               </TableRow>
             </TableHeader>
             <TableBody>

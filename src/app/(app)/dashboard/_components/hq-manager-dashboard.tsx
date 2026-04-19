@@ -1,9 +1,9 @@
-import { FileText, Inbox, ShoppingCart } from "lucide-react";
+import { CheckCircle2, FileText, Inbox } from "lucide-react";
 
 import { StatCard, StatCardGrid } from "@/components/app/stat-card";
 import {
   countOrdersByStatus,
-  recentOrders,
+  recentBranchApprovedForHq,
   sumInvoicesByStatus,
 } from "@/lib/db/dashboard";
 import { formatCents } from "@/lib/money";
@@ -11,50 +11,46 @@ import { formatCents } from "@/lib/money";
 import { RecentOrdersPanel } from "./_shared";
 
 /**
- * Phase 7a — branch manager dashboard.
+ * Phase 7a — HQ Manager dashboard.
  *
- * Same shape as the branch user dashboard but with a step-1 approval
- * queue card pulled to the front (the BM's primary daily action).
+ * HQ owns step-2 cross-branch. Primary stat is "awaiting HQ"; we also
+ * surface the step-1 backlog (read-only context — HQ can't act there
+ * per the SPEC §8.2 non-substitution rule, but seeing branch managers
+ * are behind helps decide who to nudge).
  */
-export async function BranchManagerDashboard() {
-  const [pending, openOrders, openInvoices, overdue, recent] =
+export async function HqManagerDashboard() {
+  const [awaitingHq, awaitingBranch, openInvoices, overdue, recent] =
     await Promise.all([
+      countOrdersByStatus(["branch_approved"]),
       countOrdersByStatus(["submitted"]),
-      countOrdersByStatus([
-        "branch_approved",
-        "approved",
-        "picking",
-        "packed",
-        "shipped",
-      ]),
       sumInvoicesByStatus(["issued", "overdue"]),
       sumInvoicesByStatus(["overdue"]),
-      recentOrders(5),
+      recentBranchApprovedForHq(5),
     ]);
 
   return (
     <div className="space-y-6">
       <StatCardGrid>
         <StatCard
-          label="Awaiting your approval"
-          value={String(pending.count)}
+          label="Awaiting HQ"
+          value={String(awaitingHq.count)}
           sublabel={
-            pending.count > 0
-              ? "Step 1 — review the branch queue"
+            awaitingHq.count > 0
+              ? "Step 2 — your queue, oldest first"
               : "Inbox zero"
           }
           icon={<Inbox className="h-4 w-4" />}
           href="/approvals"
-          emphasis={pending.count > 0 ? "warning" : "neutral"}
-          testId="stat-pending-approvals"
+          emphasis={awaitingHq.count > 0 ? "warning" : "neutral"}
+          testId="stat-awaiting-hq"
         />
         <StatCard
-          label="In flight"
-          value={String(openOrders.count)}
-          sublabel="Branch-approved through shipped"
-          icon={<ShoppingCart className="h-4 w-4" />}
-          href="/orders"
-          testId="stat-open-orders"
+          label="Awaiting branch"
+          value={String(awaitingBranch.count)}
+          sublabel="Step 1 — branch managers' queue"
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          href="/approvals"
+          testId="stat-awaiting-branch"
         />
         <StatCard
           label="Open invoices"
@@ -83,10 +79,10 @@ export async function BranchManagerDashboard() {
       </StatCardGrid>
 
       <RecentOrdersPanel
-        title="Recent activity on your branch"
+        title="Awaiting HQ approval"
         rows={recent}
-        emptyTitle="No orders yet"
-        emptyDescription="Recent orders for your branch will appear here."
+        emptyTitle="HQ queue is clear"
+        emptyDescription="Branch-approved orders will appear here for your review."
       />
     </div>
   );

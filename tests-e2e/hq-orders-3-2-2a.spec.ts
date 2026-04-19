@@ -112,8 +112,16 @@ test.describe("3.2.2a HQ /orders visibility + chips + palette", () => {
     const cls = (await active.getAttribute("class")) ?? "";
     expect(cls, "active chip missing bg-accent class").toMatch(/\bbg-accent\b/);
 
-    // Sibling chips must carry aria-pressed='false'.
-    const inactive = page.getByRole("link", { name: "Submitted", exact: true });
+    // Sibling chips must carry aria-pressed='false'. Scope to the
+    // chips nav so the lookup doesn't conflict with the new sortable
+    // "Submitted" column header (Phase 7a) which shares the label.
+    const chips = page.getByRole("navigation", {
+      name: "Filter orders by status",
+    });
+    const inactive = chips.getByRole("link", {
+      name: "Submitted",
+      exact: true,
+    });
     await expect(inactive).toHaveAttribute("aria-pressed", "false");
   });
 

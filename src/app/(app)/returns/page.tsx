@@ -15,7 +15,14 @@ import {
 } from "@/components/ui/table";
 import { ReturnStatusPill } from "@/components/app/return-status-pill";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { fetchVisibleReturns, RETURN_STATUSES } from "@/lib/db/returns";
+import {
+  fetchVisibleReturns,
+  RETURN_STATUSES,
+  RETURNS_SORTABLE_COLUMNS,
+  type ReturnsSortColumn,
+} from "@/lib/db/returns";
+import { parseSortParam } from "@/lib/url/sort";
+import { SortableHeader } from "@/components/app/sortable-header";
 
 import {
   ReturnStatusFilterChips,
@@ -39,7 +46,7 @@ function formatDate(iso: string | null) {
 export default async function ReturnsPage({
   searchParams,
 }: {
-  searchParams: { status?: string };
+  searchParams: { status?: string; sort?: string; dir?: string };
 }) {
   const session = await getUserWithRoles();
   if (!session) redirect("/login");
@@ -50,7 +57,14 @@ export default async function ReturnsPage({
     : null;
   const activeFilter: ReturnStatusFilter | "all" = status ?? "all";
 
-  const rows = await fetchVisibleReturns(status);
+  const sort = parseSortParam<ReturnsSortColumn>(
+    { sort: searchParams.sort, dir: searchParams.dir },
+    RETURNS_SORTABLE_COLUMNS,
+    null,
+  );
+
+  const rows = await fetchVisibleReturns(status, sort);
+  const preserve = { status: status ?? null };
 
   return (
     <>
@@ -74,13 +88,42 @@ export default async function ReturnsPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>RMA</TableHead>
+                <SortableHeader
+                  basePath="/returns"
+                  column="rma_number"
+                  current={sort}
+                  preserveParams={preserve}
+                >
+                  RMA
+                </SortableHeader>
                 <TableHead>Order</TableHead>
-                <TableHead>Branch</TableHead>
-                <TableHead>Status</TableHead>
+                <SortableHeader
+                  basePath="/returns"
+                  column="branch"
+                  current={sort}
+                  preserveParams={preserve}
+                >
+                  Branch
+                </SortableHeader>
+                <SortableHeader
+                  basePath="/returns"
+                  column="status"
+                  current={sort}
+                  preserveParams={preserve}
+                >
+                  Status
+                </SortableHeader>
                 <TableHead className="text-right">Items</TableHead>
                 <TableHead>Requested by</TableHead>
-                <TableHead className="text-right">Requested</TableHead>
+                <SortableHeader
+                  basePath="/returns"
+                  column="requested_at"
+                  current={sort}
+                  preserveParams={preserve}
+                  align="right"
+                >
+                  Requested
+                </SortableHeader>
               </TableRow>
             </TableHeader>
             <TableBody>
