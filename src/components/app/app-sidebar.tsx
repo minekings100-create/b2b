@@ -146,6 +146,17 @@ export function AppSidebar({
             />
           </SidebarSection>
         ) : null}
+        {admin || isHqManager(roles) ? (
+          <SidebarSection label="Insights">
+            <SidebarItem
+              as="a"
+              href="/reports"
+              icon={<BarChart3 className="h-4 w-4" />}
+              label="Reports"
+              active={is("/reports")}
+            />
+          </SidebarSection>
+        ) : null}
         {admin ? (
           <SidebarSection label="Admin">
             <SidebarItem
@@ -161,13 +172,6 @@ export function AppSidebar({
               icon={<Building2 className="h-4 w-4" />}
               label="Branches"
               active={is("/branches")}
-            />
-            <SidebarItem
-              as="a"
-              href="/reports"
-              icon={<BarChart3 className="h-4 w-4" />}
-              label="Reports"
-              active={is("/reports")}
             />
             <SidebarItem
               as="a"

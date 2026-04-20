@@ -40,6 +40,25 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Reports (Phase 7b-2c)
+
+The `/reports` tree is a set of admin/HQ-scoped aggregate views over existing tables. Each report is its own sub-route with a URL-driven date window (`?from=YYYY-MM-DD&to=YYYY-MM-DD`) and a matching CSV export at `/api/reports/[kind]/csv`.
+
+**Access model.** `src/lib/auth/reports.ts` is the single source of truth for per-report visibility. The same `canSeeReport(kind, roles)` predicate drives:
+1. The `/reports` index card list (`reportsVisibleTo`).
+2. Each page's `redirect("/dashboard")` guard.
+3. The CSV route's 403 check.
+
+Today: admin sees all four; HQ Manager sees three (no AR aging); everyone else is redirected.
+
+**Data layer.** `src/lib/db/reports.ts` holds one fetch helper per report, all using the admin (service-role) client because every report is cross-branch. Pages/routes are the security boundary via `canSeeReport`; RLS isn't load-bearing because most reports inherently span every branch.
+
+**Window parser.** `src/app/(app)/reports/_lib/window.ts` — Zod-parses `?from&to`, defaults to the last 30 days in UTC. Shared between the pages and the CSV route so a page link and its CSV export produce identical rows.
+
+**CSV builder.** `src/lib/reports/csv.ts` — tiny RFC 4180-flavoured builder, no external dep. `centsToDecimalString` formats bigint cents as `"12.34"` for spreadsheet-friendly decimals. One route handler `/api/reports/[kind]/csv` dispatches by kind (404 for unknown, 403 for disallowed role, 200 for allowed).
+
+**Sidebar placement.** Reports lives in a new "Insights" section (separate from "Admin") because HQ Manager legitimately sees it now; grouping it with admin write surfaces was misleading.
+
 ## Archive / Restore UX (Phase 7b-2b)
 
 Every entity with a `deleted_at` column surfaces a consistent archive/restore pattern:
