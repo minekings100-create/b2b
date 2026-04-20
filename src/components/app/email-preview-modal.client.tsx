@@ -1,23 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mail, Send, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Mail, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 /**
- * Post-MVP Sprint 2 — email preview modal used by:
+ * Post-MVP Sprint 2 + follow-up — email preview modal.
+ *
+ * Used by:
  *   - invoice detail "Send reminder" (single)
  *   - invoice detail "Issue" (single)
- *   - /invoices bulk reminder action bar
+ *   - /invoices bulk reminder action bar (multi)
  *
- * Server actions load the rendered HTML + plaintext; the modal just
- * displays them and hands confirmation back to the caller via
- * `onConfirm`. The caller decides what to do on confirm (typically
- * call the `send*` action).
+ * Server actions load rendered HTML + plaintext; the modal displays
+ * them and hands confirmation back via `onConfirm`. The caller decides
+ * what to do on confirm (typically call the `send*` action).
  *
- * The HTML is rendered inside an `<iframe srcdoc>` so external-email
- * styling doesn't leak into the app's stylesheet and vice versa.
+ * The HTML renders inside an `<iframe srcdoc>` so email styling
+ * doesn't leak into the app and vice versa.
+ *
+ * Bulk mode: the caller now passes the FULL list of per-invoice
+ * renders (not just one sample). The modal tracks `currentIndex`
+ * internally and exposes Prev / Next controls + ArrowLeft / ArrowRight
+ * keyboard shortcuts so admins can spot-check any row before
+ * sending. "Send to N" still operates on the full set — per-row
+ * navigation is a review affordance, not a filter.
  */
 
 export type EmailPreviewData = {
@@ -30,7 +38,11 @@ export type EmailPreviewData = {
 export type BulkPreviewData = {
   total: number;
   sendable_count: number;
-  sample: EmailPreviewData | null;
+  /**
+   * Per-invoice rendered previews, one per sendable invoice. Navigation
+   * uses array indices; length === sendable_count.
+   */
+  previews: EmailPreviewData[];
   skipped: Array<{ invoice_id: string; reason: string }>;
 };
 
@@ -64,21 +76,58 @@ export function EmailPreviewModal({
 }) {
   const [showPlain, setShowPlain] = useState(false);
   const [skipNext, setSkipNext] = useState(skipToggle?.initial ?? false);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
-  // Simple ESC to cancel.
+  const bulkPreviews = bulk?.previews ?? [];
+  const bulkCount = bulkPreviews.length;
+  const atStart = currentIndex <= 0;
+  const atEnd = currentIndex >= bulkCount - 1;
+
+  // Reset internal view state whenever the modal opens fresh.
+  useEffect(() => {
+    if (!open) return;
+    setCurrentIndex(0);
+    setShowPlain(false);
+  }, [open]);
+
+  // Keyboard: Escape cancels; Left/Right navigate (bulk only).
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !sending) onCancel();
+      if (sending) return;
+      if (e.key === "Escape") {
+        onCancel();
+        return;
+      }
+      if (bulkCount <= 1) return;
+      // Don't hijack arrows while the user is typing in an input.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setCurrentIndex((i) => Math.max(0, i - 1));
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setCurrentIndex((i) => Math.min(bulkCount - 1, i + 1));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel, sending]);
+  }, [open, onCancel, sending, bulkCount]);
 
   if (!open) return null;
 
-  const sample = preview ?? bulk?.sample ?? null;
+  const activePreview: EmailPreviewData | null = bulk
+    ? (bulkPreviews[currentIndex] ?? null)
+    : (preview ?? null);
 
   return (
     <div
@@ -99,6 +148,15 @@ export function EmailPreviewModal({
           <div className="flex items-center gap-2">
             <Mail className="h-4 w-4 text-fg-muted" aria-hidden />
             <h2 className="text-sm font-semibold text-fg">{title}</h2>
+            {bulk && bulkCount > 1 ? (
+              <span
+                className="ml-2 rounded-sm bg-surface px-1.5 py-0.5 text-[11px] font-medium text-fg-muted ring-1 ring-border font-numeric"
+                data-testid="preview-counter"
+                aria-live="polite"
+              >
+                Preview {currentIndex + 1} of {bulkCount}
+              </span>
+            ) : null}
           </div>
           <Button
             type="button"
@@ -116,25 +174,28 @@ export function EmailPreviewModal({
           {bulk ? (
             <p className="text-fg-muted">
               <span className="font-medium text-fg">
-                Applies to {bulk.sendable_count} of {bulk.total} selected invoice
+                Sends to {bulk.sendable_count} of {bulk.total} selected invoice
                 {bulk.total === 1 ? "" : "s"}.
               </span>{" "}
-              Below is a representative sample — the real send renders each
-              invoice's own figures (days overdue, amount, recipients).
+              {bulkCount > 1 ? (
+                <>Use the arrows (or ← / →) to step through each render.</>
+              ) : (
+                <>Each invoice renders its own figures at send time.</>
+              )}
             </p>
           ) : null}
-          {sample ? (
+          {activePreview ? (
             <dl className="grid grid-cols-[80px_1fr] gap-y-1">
               <dt className="text-fg-subtle">To</dt>
               <dd
                 className="text-fg break-all"
                 data-testid="preview-recipients"
               >
-                {sample.recipients.join(", ")}
+                {activePreview.recipients.join(", ")}
               </dd>
               <dt className="text-fg-subtle">Subject</dt>
               <dd className="text-fg" data-testid="preview-subject">
-                {sample.subject}
+                {activePreview.subject}
               </dd>
             </dl>
           ) : null}
@@ -177,21 +238,52 @@ export function EmailPreviewModal({
           >
             Plain text
           </button>
+          {bulk && bulkCount > 1 ? (
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+                disabled={atStart || sending}
+                aria-label="Previous invoice preview"
+                data-testid="preview-prev"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() =>
+                  setCurrentIndex((i) => Math.min(bulkCount - 1, i + 1))
+                }
+                disabled={atEnd || sending}
+                aria-label="Next invoice preview"
+                data-testid="preview-next"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto bg-white">
-          {sample ? (
+          {activePreview ? (
             showPlain ? (
               <pre
                 className="whitespace-pre-wrap p-4 font-mono text-xs text-black"
                 data-testid="preview-plain"
               >
-                {sample.text}
+                {activePreview.text}
               </pre>
             ) : (
               <iframe
                 // srcdoc isolates the email's styles from the app's.
-                srcDoc={sample.html}
+                // Key on (index, showPlain) so toggling tabs or stepping
+                // forces a re-render rather than relying on srcDoc diff.
+                key={`${bulk ? currentIndex : "single"}-html`}
+                srcDoc={activePreview.html}
                 className="h-full w-full border-0 bg-white"
                 title="Email preview"
                 data-testid="preview-html"
@@ -245,7 +337,7 @@ export function EmailPreviewModal({
               loading={sending}
               disabled={
                 sending ||
-                (bulk ? bulk.sendable_count === 0 : !sample)
+                (bulk ? bulk.sendable_count === 0 : !activePreview)
               }
               onClick={() => onConfirm({ skipNextTime: skipNext })}
               data-testid="preview-send"

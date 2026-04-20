@@ -167,18 +167,20 @@ export function BulkReminderShell({
       setErrorList([{ invoice_id: "—", reason: res.error }]);
       return;
     }
-    const sample: EmailPreview | null = res.preview.sample;
+    // Follow-up to PR #39: the modal now accepts ALL per-invoice renders
+    // so the admin can step through each with Prev/Next. Map the server-
+    // side EmailPreview list straight to the modal's EmailPreviewData
+    // shape (drop the kind/ids/days_overdue fields the modal doesn't
+    // need).
     setPreviewData({
       total: res.preview.total,
       sendable_count: res.preview.sendable.length,
-      sample: sample
-        ? {
-            recipients: sample.recipients,
-            subject: sample.subject,
-            html: sample.html,
-            text: sample.text,
-          }
-        : null,
+      previews: res.preview.sendable.map((p: EmailPreview) => ({
+        recipients: p.recipients,
+        subject: p.subject,
+        html: p.html,
+        text: p.text,
+      })),
       skipped: res.preview.skipped,
     });
     setModalOpen(true);
