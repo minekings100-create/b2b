@@ -1,5 +1,55 @@
 # Changelog
 
+## [Post-MVP Sprint 2] — 2026-04-21 — admin efficiency (bulk reminders + email preview)
+
+Two admin-facing efficiency features. No migration. Reuses the existing reminder-email render + transport (`renderInvoiceOverdueReminder` + `notify`).
+
+### Bulk actions on overdue invoices
+- On `/invoices?status=overdue` (admin + super_admin only), each row gets a checkbox and the header gets "Select all on page".
+- Selecting ≥1 row shows a floating `<BulkActionBar>` at the bottom with `"N selected"`, a **Send reminder** button, and a clear/× button.
+- Send reminder opens the email preview modal first (same modal as the single-invoice path). Confirming runs `sendBulkReminders(ids)` — a Server Action that loops sequentially per the scope, calling the shared `loadInvoiceReminderContext` + `notify` for each. Returns `{ sent: [...], failed: [{invoice_id, reason}] }`.
+- Partial failure handling: successes confirmed in the modal footer; failures listed inline below the table (`data-testid="bulk-failure-list"`). Modal stays open on failure so the admin can inspect reasons; closes after ~1.2s on clean success.
+- One `audit_log` row per sent reminder: `action='invoice_reminder_manual'`, `actor_user_id` bound to the admin who clicked. Distinct from the cron's `invoice_reminder` so the trail reads unambiguously.
+
+### Email preview for admin
+- New `<EmailPreviewModal>` client component. Shows rendered subject, recipient list, HTML render (in an `<iframe srcdoc>` to isolate email styles), plaintext toggle, Send / Cancel buttons.
+- Wired to three invoice actions:
+  - `/invoices/[id]` **Issue invoice** — preview, then issue.
+  - `/invoices/[id]` **Send reminder** (new button, visible for issued + overdue) — preview, then send.
+  - `/invoices?status=overdue` bulk **Send reminder** — one modal with "Applies to N of M selected invoices" + a sample render.
+- **Skip preview next time**: per-user checkbox in the modal footer. Stored under `users.notification_preferences.skip_email_preview` (JSONB extension, no migration). `getSkipEmailPreview` / `setSkipEmailPreview` actions read/write it. When set, the button submits directly without opening the modal.
+- Drafts don't carry `due_at` yet (it's stamped at issue time). The preview loader (`loadInvoiceIssuedContext`) simulates the real computed due date (`today + 30 days UTC`) so the admin sees the true email shape rather than an error.
+
+### New Server Actions
+| Action | Purpose | Audit action |
+|---|---|---|
+| `sendSingleReminder(id)` | Single reminder from the detail page | `invoice_reminder_manual` |
+| `sendBulkReminders(ids)` | Bulk reminder from /invoices overdue | `invoice_reminder_manual` per item |
+| `setSkipEmailPreview(skip)` | Persist per-user preview toggle | none (UI preference, not a domain mutation) |
+| `getSkipEmailPreview()` | Read the flag for server-component props | none |
+| `getInvoiceReminderPreview(id)` | Render reminder preview (admin-only) | none |
+| `getInvoiceIssuedPreview(id)` | Render issued preview (admin-only) | none |
+| `getBulkReminderPreview(ids)` | Pre-flight: render first + list skip reasons | none |
+
+### Tests
+- **Vitest** 108/108 (no new unit cover — preview + send logic is end-to-end).
+- **Playwright (full 3-viewport)**: new spec `tests-e2e/post-mvp-2-admin-efficiency.spec.ts`.
+  - Responsive (3-viewport): single invoice reminder preview + HTML/plaintext toggle; bulk action bar + preview modal on overdue filter.
+  - Desktop-only: branch user sees no checkboxes; bulk send writes `invoice_reminder_manual` audit rows; skip-preview toggle persists across sessions.
+- Phase 5 smoke regression fixed: the `admin draft → issue → mark paid` test now handles the preview modal (polyfilled with an `isVisible` check so either skip-path keeps passing).
+
+### Decisions made without asking
+- **Sequential bulk send on the server** rather than client-side looping one-by-one. Brief called for sequential; a single Server Action call reduces round-trips + keeps all the audit rows in one revalidation window. Client-side progress is best-effort; the action's return shape (`{ sent, failed }`) is the authoritative per-item result.
+- **JSONB extension over a new column** for `skip_email_preview`. Zero migration, user's brief explicitly offered this option. Semantically a minor stretch (the column is named `notification_preferences`, this is a UI preference), documented in the migration comment for Sprint 1's `login_disabled` column which took the opposite choice.
+- **Preview of drafts fakes the due_at**. Rather than refuse to preview a draft (which would block the common issue flow), compute `today + 30 days` UTC — same logic `issueInvoice` runs at submit. Documented in a code comment.
+- **Modal uses `<iframe srcdoc>`** to isolate the email CSS. Avoids polluting the app stylesheet and vice versa.
+- **Bulk cap: 500 rows** — Zod-enforced. Anything more suggests the filter is wrong, not an actual bulk send.
+
+### Rate-limit caveat
+Each bulk send produces one Supabase Auth "none" event but N `notify()` email-transport calls. The current transport is console-only (Phase 3.3.1 status), so tests and local dev are cap-free. For real production this will hit Resend (see BACKLOG § "Supabase Auth email delivery — swap to Resend"), which has its own rate limits but is production-grade. Not a blocker for this PR.
+
+---
+
 ## [Post-MVP Sprint 1] — 2026-04-21 — user + branch lifecycle + admin password reset
 
 Admin-facing user and branch lifecycle. Replaces "archive / restore only" (from 7b-2b) with full create, edit, role management, password reset, and a new login-disabled toggle.

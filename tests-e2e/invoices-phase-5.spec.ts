@@ -167,8 +167,15 @@ test.describe("Phase 5 — invoice lifecycle", () => {
       expect(pdfRes.status()).toBe(200);
       expect(pdfRes.headers()["content-type"]).toContain("application/pdf");
 
-      // Issue.
+      // Issue. Post-Sprint-2, the button opens an email preview modal
+      // first; confirming via "Send" is what actually issues. The
+      // admin's per-user skip_email_preview flag could bypass the
+      // modal entirely — handle both paths.
       await page.getByTestId("invoice-issue-button").click();
+      const previewModal = page.getByTestId("email-preview-modal");
+      if (await previewModal.isVisible().catch(() => false)) {
+        await previewModal.getByTestId("preview-send").click();
+      }
       // Poll the DB directly: the page's revalidate + re-render is
       // async, and a pill text assertion races it. DB is authoritative.
       await expect
