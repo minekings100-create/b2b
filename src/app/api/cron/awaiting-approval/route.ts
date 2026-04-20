@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  amsterdamHourNow,
+  isExpectedAmsterdamHour,
+} from "@/lib/dates/dst-cron";
+import {
   hqManagers,
   managersForBranch,
   type Recipient,
@@ -17,9 +21,10 @@ import type { Database } from "@/lib/supabase/types";
  * Sub-milestone 3.3.1, post-3.2.2 rebase — nightly digest reminder for
  * BOTH approval steps.
  *
- * Schedule: 02:15 Europe/Amsterdam (00:15 UTC standard time / 01:15
- * CEST). `vercel.json` runs the route at the *UTC* offset; expect ~1h
- * drift across DST boundaries — acceptable for a once-a-day reminder.
+ * Schedule: 02:15 Europe/Amsterdam, year-round. `vercel.json` ships TWO
+ * UTC schedules to handle DST: `15 0 * * *` matches 02:15 CEST (summer)
+ * and `15 1 * * *` matches 02:15 CET (winter). The DST gate at the top
+ * of GET (production only) suppresses the off-half firing. Phase 7b-1.
  *
  * Two passes per run:
  *   1. submitted_awaiting_branch_reminder — orders where
@@ -29,11 +34,13 @@ import type { Database } from "@/lib/supabase/types";
  *      status='branch_approved' AND branch_approved_at < now() - 24h.
  *      Cross-branch; one digest per HQ Manager.
  *
- * Both digests are emitted by the same cron tick so a 03:00 Vercel
+ * Both digests are emitted by the same cron tick so a single Vercel
  * Cron event handles both queues in one transaction-of-intent.
  */
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const TARGET_AMS_HOUR = 2;
 
 type WaitingOrder = {
   order_id: string;
@@ -53,6 +60,17 @@ export async function GET(req: Request): Promise<Response> {
     if (auth !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+  }
+
+  // DST gate — production-only so e2e can hit the cron at any time.
+  if (secret && !isExpectedAmsterdamHour(TARGET_AMS_HOUR)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "outside_target_hour",
+      target_hour_ams: TARGET_AMS_HOUR,
+      actual_hour_ams: amsterdamHourNow(),
+    });
   }
 
   const adm = createAdminClient();

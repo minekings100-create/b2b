@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addWorkingDays } from "@/lib/dates/working-days";
+import { loadActiveHolidays } from "@/lib/dates/holidays";
+import {
+  amsterdamHourNow,
+  isExpectedAmsterdamHour,
+} from "@/lib/dates/dst-cron";
 import {
   adminAudience,
   hqManagers,
@@ -16,28 +21,29 @@ import type { Database, Json } from "@/lib/supabase/types";
 /**
  * Sub-milestone 3.2.2c — auto-cancel stale orders (SPEC §8.8).
  *
- * Schedule: 08:00 Europe/Amsterdam (`vercel.json` cron `0 6 * * *` UTC,
- * which is 08:00 CET in winter and 09:00 CEST in summer — the ~1h DST
- * drift is captured in `docs/BACKLOG.md` § Phase 7 polish for a future
- * revisit).
+ * Schedule: 08:00 Europe/Amsterdam, year-round. `vercel.json` ships TWO
+ * UTC schedules to handle DST: `0 6 * * *` matches 08:00 CEST (summer)
+ * and `0 7 * * *` matches 08:00 CET (winter). The DST gate at the top
+ * of GET (production only) suppresses the off-half firing.
+ *
+ * NL public holidays are loaded from `public_holidays` and threaded
+ * into addWorkingDays so a holiday cluster (e.g. Pasen) doesn't count
+ * as elapsed working days.
  *
  * Behaviour:
  *  - Step-1 timeout: status='submitted' AND submitted_at older than
- *    `addWorkingDays(now, -2)` → cancel with reason
+ *    `addWorkingDays(now, -2, {holidays})` → cancel with reason
  *    `auto_cancel_no_branch_approval`. No reservations to release
  *    (none were ever made — that happens at step 1).
  *  - Step-2 timeout: status='branch_approved' AND branch_approved_at
- *    older than `addWorkingDays(now, -3)` → cancel with reason
- *    `auto_cancel_no_hq_approval`. Releases reservations via the same
- *    movement+inventory pattern as the manual cancel action.
+ *    older than `addWorkingDays(now, -3, {holidays})` → cancel with
+ *    reason `auto_cancel_no_hq_approval`. Releases reservations via
+ *    the same movement+inventory pattern as the manual cancel action.
  *
  * Auth: production sets `CRON_SECRET`; Vercel Cron sends the matching
  * Bearer header automatically. Local + e2e leave the secret unset so
- * the route is callable directly.
- *
- * Out of scope today: the per-step reminder emails (+1 / +2 working
- * days). Those land with the 3.3.1 rebase since they need the email
- * transport.
+ * the route is callable directly. The DST gate is also production-only
+ * so e2e tests can hit the cron at any clock time.
  */
 
 export const dynamic = "force-dynamic";
@@ -64,6 +70,7 @@ const REASON_BY_PRIOR: Record<
 
 const STEP_1_DAYS = 2;
 const STEP_2_DAYS = 3;
+const TARGET_AMS_HOUR = 8;
 
 export async function GET(req: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;
@@ -74,10 +81,24 @@ export async function GET(req: Request): Promise<Response> {
     }
   }
 
+  // DST gate — production-only so e2e tests can hit the cron at any
+  // clock time. The `secret` presence is the production signal we
+  // already use for auth above.
+  if (secret && !isExpectedAmsterdamHour(TARGET_AMS_HOUR)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "outside_target_hour",
+      target_hour_ams: TARGET_AMS_HOUR,
+      actual_hour_ams: amsterdamHourNow(),
+    });
+  }
+
   const adm = createAdminClient();
   const now = new Date();
-  const step1Cutoff = addWorkingDays(now, -STEP_1_DAYS);
-  const step2Cutoff = addWorkingDays(now, -STEP_2_DAYS);
+  const holidays = await loadActiveHolidays(adm);
+  const step1Cutoff = addWorkingDays(now, -STEP_1_DAYS, { holidays });
+  const step2Cutoff = addWorkingDays(now, -STEP_2_DAYS, { holidays });
 
   const stale = await loadStaleOrders(adm, step1Cutoff, step2Cutoff);
 

@@ -1,5 +1,50 @@
 # Changelog
 
+## [Phase 7b-1] — 2026-04-20 — crons: NL holidays + DST gate + 90-day cleanup
+
+First half of the Phase 7b split (per the 7a PR's deferred list). Ships the cron + data infrastructure: NL public holidays, DST-aware schedule splitting, and the destructive 90-day notifications cleanup. UI polish (archive/restore, audit-log viewer, reports, accessibility audit, English copy review, doc refresh) lands in 7b-2.
+
+### NL public holidays
+- New table `public_holidays` (`region`, `date`, `name`) seeded with NL national holidays for 2026 + 2027. Includes Bevrijdingsdag in non-lustrum years to match how warehouses treat 5 May in practice.
+- RLS: read = any authenticated user; write = `super_admin` only. Until 7b-2 ships an admin UI, super_admins manage rows via Supabase Studio.
+- New loader `src/lib/dates/holidays.ts` — `loadActiveHolidays(db, region='NL')`. Fail-soft: on a DB error logs `[holidays] load failed` and returns `[]` (= reverts to Mon–Fri-only behaviour, the pre-7b-1 baseline) rather than crashing the cron sweep.
+- Wired into the auto-cancel cron's `addWorkingDays(now, -2/-3, { holidays })` calls. The other crons don't use working-days arithmetic.
+
+### DST-aware cron scheduling
+- New helper `src/lib/dates/dst-cron.ts` — `isExpectedAmsterdamHour(targetHour)` + `amsterdamHourNow()` using `Intl.DateTimeFormat({ timeZone: "Europe/Amsterdam" })`. Pure module, no deps.
+- All four cron handlers (auto-cancel, awaiting-approval, overdue-invoices, cleanup-notifications) now gate on the target Amsterdam local hour. Gate is **production-only** (skipped when `CRON_SECRET` is unset) so e2e can hit the route at any clock time.
+- `vercel.json` ships TWO UTC schedules per cron — one matching CET (winter), one matching CEST (summer). The off-DST-half firing returns `{ ok: true, skipped: true }` and does no work.
+
+### 90-day notifications cleanup cron (DESTRUCTIVE)
+- New route `/api/cron/cleanup-notifications` — hard-deletes rows from `notifications` where `sent_at < now() - 90 days AND read_at IS NOT NULL`. Unread rows are NEVER deleted regardless of age (a year-old unread row stays so the user still sees it next time they open the bell).
+- **Atomic** via a new SQL function `public.cleanup_old_notifications(p_cutoff, p_retention_days, p_max_count)` (migration `20260420000002`). Three modifying CTEs in a single statement (SELECT → INSERT-audit → DELETE) so audit happens BEFORE delete and either both commit or both roll back. A partial failure cannot leave deleted rows without an audit trail.
+- Hard cap: 10,000 deletions per run. A larger backlog gets chipped down weekly; response surfaces `capped: true`.
+- One `audit_log` row per deleted notification (`action='notification_cleanup'`, `actor_user_id=null`, `before_json` snapshots `{ user_id, type, sent_at, read_at }`).
+- Schedule: weekly Sunday 06:00 Europe/Amsterdam (double-scheduled `0 4 * * 0` summer + `0 5 * * 0` winter UTC).
+
+### Migrations
+- `20260420000001_public_holidays.sql` — table + RLS + 2026/2027 NL holidays seed.
+- `20260420000002_cleanup_notifications_fn.sql` — atomic cleanup function.
+
+### Tests
+- **Vitest** 93/93 pass (8 new in `tests/lib/dst-cron.test.ts` covering winter, summer, spring-forward, hour boundaries).
+- **Playwright (desktop-1440)** new spec `tests-e2e/notifications-cleanup-7b1.spec.ts` (2 cases) + smoke on auto-cancel-3-2-2c (5), notifications-3-3-1 (10), invoices-phase-5 (4), notifications-bell-orphan (2) — 19 passed, 2 skipped (CRON_SECRET-only auth tests).
+- **Test discipline** per CLAUDE.md: this PR doesn't touch responsive layout, so Playwright runs default desktop-1440 only.
+
+### Decisions made without asking
+- **Holidays loader is fail-soft (loud log, returns [])** rather than throwing. Failing closed would mean the cron crashes and nothing gets cancelled at all — strictly worse than reverting to pre-7b-1 Mon-Fri-only behaviour.
+- **Atomicity via a Postgres function with modifying CTEs** rather than two JS-side queries. Cleaner than a JS-side BEGIN/COMMIT and impossible to misuse.
+- **DST gate is production-only** (`if (secret && !isExpectedAmsterdamHour(...))`). Tests run without `CRON_SECRET` set — same heuristic as the existing auth check in the same handlers.
+- **Bevrijdingsdag (5 May) included in 2026 + 2027** even though officially only nationally observed every 5th year (next: 2030). Matches how most office/warehouse calendars treat it; super_admins can remove rows once 7b-2 ships the admin UI.
+- **No `public_holidays` admin UI in this PR** — defers to 7b-2 to keep this PR focused on the cron infrastructure. Seed covers ~2 years of runway.
+- **Audit row per deleted notification (not aggregate)** — `audit_log.entity_id` is `not null` and the SPEC's audit rule is per-entity. Aggregate would have needed a sentinel UUID hack; per-row is honest.
+
+### Follow-ups (Phase 7b-2)
+- super_admin UI for managing `public_holidays` rows so future-year seeding doesn't require Studio access.
+- Archive/Restore UX pattern, audit-log viewer, reports, accessibility audit, English copy review, doc refresh.
+
+---
+
 ## [Phase 7a] — 2026-04-20 — polish: dashboards + sortable headers + HQ stock preview
 
 Phase 7 split — see "Decisions" below for the 7a / 7b cut. This PR ships the user-visible polish surface; infra-heavy items (NL holidays, DST cron, archive/restore, audit-log viewer, reports, accessibility audit, doc refresh) and the destructive 90-day notifications-cleanup cron stay in 7b.
