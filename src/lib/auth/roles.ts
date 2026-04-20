@@ -44,6 +44,16 @@ export function isAdmin(assignments: readonly RoleAssignment[]): boolean {
 }
 
 /**
+ * Super_admin only — stricter than `isAdmin`. Gates pages whose write
+ * RLS policies are super_admin-only (e.g. `public_holidays` from
+ * Phase 7b-1). The administration role can see such pages but cannot
+ * write; keeping the UI super_admin-only prevents dead-end clicks.
+ */
+export function isSuperAdmin(assignments: readonly RoleAssignment[]): boolean {
+  return hasRole(assignments, "super_admin");
+}
+
+/**
  * HQ Manager — global second-step approver introduced in 3.2.2 (SPEC §5).
  * Crucially NOT included in `isAdmin` because HQ has no user/catalog/
  * invoice mutation rights; only second-step approval + cross-branch read.

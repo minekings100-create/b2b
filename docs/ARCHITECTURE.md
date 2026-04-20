@@ -40,6 +40,15 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Admin surfaces (Phase 7b-2a)
+
+Admin-only pages live under `/admin/<thing>`:
+
+- `/admin/holidays` — super_admin only (both page + mutations). Manages `public_holidays` rows with add / edit / delete. Each mutation writes one `audit_log` row (`entity_type='public_holiday'`, `action='holiday_{created,updated,deleted}'`). The super_admin split (vs. `isAdmin`, which also includes `administration`) is enforced by the new `isSuperAdmin()` helper in `src/lib/auth/roles.ts`.
+- `/admin/audit-log` — admin (super_admin + administration). URL-driven filter bar (entity_type, action, actor email, since/until) + offset pagination (50 rows/page). Zod parse at the page trust boundary. The `actor_email → actor_user_id` resolution happens server-side so the DB query stays an indexed equality match; an unknown email short-circuits to an empty page with a helpful message rather than returning the full unfiltered set.
+
+Both pages reuse the existing `PageHeader` + `Table` primitives and the `useFormState`/`useFormStatus` form pattern from `/catalog/categories`.
+
 ## Cron scheduling (Phase 7b-1)
 
 Vercel Cron schedules are UTC and have no native timezone support. To run a cron at a fixed Europe/Amsterdam local hour year-round, this codebase uses a **double-schedule + in-handler hour gate** pattern:

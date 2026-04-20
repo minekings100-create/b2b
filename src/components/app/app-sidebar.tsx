@@ -3,7 +3,9 @@
 import {
   BarChart3,
   Box,
+  CalendarDays,
   FileText,
+  History,
   Home,
   Inbox,
   Package,
@@ -28,6 +30,7 @@ import {
   hasAnyRole,
   isAdmin,
   isHqManager,
+  isSuperAdmin,
   viewsOrdersCrossBranch,
 } from "@/lib/auth/roles";
 import { UserMenu } from "./user-menu";
@@ -48,6 +51,7 @@ export function AppSidebar({
     isAdmin(roles);
   const canPack = hasAnyRole(roles, ["packer"]);
   const admin = isAdmin(roles);
+  const superAdmin = isSuperAdmin(roles);
   const ordersLabel = viewsOrdersCrossBranch(roles)
     ? "All orders"
     : "Orders";
@@ -157,6 +161,22 @@ export function AppSidebar({
               label="Reports"
               active={is("/reports")}
             />
+            <SidebarItem
+              as="a"
+              href="/admin/audit-log"
+              icon={<History className="h-4 w-4" />}
+              label="Audit log"
+              active={is("/admin/audit-log")}
+            />
+            {superAdmin ? (
+              <SidebarItem
+                as="a"
+                href="/admin/holidays"
+                icon={<CalendarDays className="h-4 w-4" />}
+                label="Holidays"
+                active={is("/admin/holidays")}
+              />
+            ) : null}
           </SidebarSection>
         ) : null}
       </SidebarContent>
