@@ -40,6 +40,16 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Invoice email preview + bulk reminder (Post-MVP Sprint 2)
+
+Admin-only. Two features sharing one preview component and one email-render path:
+
+**Preview-first for every outbound invoice email.** Before `Issue invoice` or `Send reminder` fires, `<EmailPreviewModal>` shows the rendered subject + recipients + HTML body (`<iframe srcdoc>` for style isolation) + plaintext toggle. Confirming sends; cancelling doesn't. A per-user `skip_email_preview` flag (stored in `users.notification_preferences` JSONB) lets admins opt out of the modal entirely — future clicks submit directly.
+
+**Bulk reminder on `/invoices?status=overdue`.** `<BulkReminderShell>` wraps the table when the caller is admin AND the overdue filter is active; otherwise it's the same plain table. Selecting ≥1 row surfaces a floating `<BulkActionBar>` ("N selected" + Send reminder + clear). Send opens the same preview modal with "applies to N of M" copy and a sample render. Confirm calls `sendBulkReminders(ids)` — a single Server Action that loops sequentially on the server, returns `{ sent, failed }`, and writes one `audit_log` row (`action='invoice_reminder_manual'`) per sent item.
+
+**Shared render path.** `src/lib/email/invoice-preview.ts` owns the DB-fetch + recipient-resolution + `renderInvoiceOverdueReminder` / `renderInvoiceIssued` plumbing. The preview actions and the send action both call `loadInvoiceReminderContext` / `loadInvoiceIssuedContext` — what the admin sees in the modal is what the recipient receives, less per-recipient substitutions (unsubscribe tokens, etc.) done inside `notify()`.
+
 ## User + branch lifecycle (Post-MVP Sprint 1)
 
 Admin surfaces for inviting / editing users, managing their role assignments, triggering password resets, and disabling login. Plus branch create / edit on top of the 7b-2b archive/restore surface.

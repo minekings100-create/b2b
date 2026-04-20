@@ -18,6 +18,7 @@ import { isAdmin } from "@/lib/auth/roles";
 import { fetchInvoiceDetail } from "@/lib/db/invoices";
 import { formatCents } from "@/lib/money";
 
+import { getSkipEmailPreview } from "@/lib/actions/invoice-reminders";
 import { InvoiceActions } from "./_components/invoice-actions.client";
 import { PayInvoiceButton } from "./_components/pay-invoice-button.client";
 
@@ -62,6 +63,7 @@ export default async function InvoiceDetailPage({
   if (!invoice) notFound();
 
   const admin = isAdmin(session.roles);
+  const skipEmailPreview = admin ? await getSkipEmailPreview() : false;
 
   return (
     <>
@@ -196,6 +198,7 @@ export default async function InvoiceDetailPage({
             <InvoiceActions
               invoiceId={invoice.id}
               status={invoice.status}
+              skipEmailPreview={skipEmailPreview}
             />
           </section>
         ) : null}

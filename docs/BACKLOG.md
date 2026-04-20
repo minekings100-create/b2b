@@ -259,3 +259,17 @@ MVP copy is functional but wasn't tone-reviewed end-to-end. A single-shot pass c
 _Captured: 2026-04-18. Shipped: 2026-04-20 in Phase 7b-2b (PR #33)._
 
 Cross-cutting archive/restore across products, categories, branches, users per the BACKLOG spec. See `docs/ARCHITECTURE.md` § "Archive / Restore UX" for the shipped pattern. Keeping this entry as a historical marker — any future entity needing soft-delete UX should mirror the same pattern.
+
+## Pre-production infrastructure
+
+### Supabase Auth email delivery — swap to Resend (or similar)
+_Captured: 2026-04-21 (discovered during Sprint 1 testing)._
+
+Supabase's default email pipeline caps invite/reset emails at 3/hour — fine for dev, blocks real onboarding. Before first real customer:
+
+- Configure Supabase Auth SMTP settings to point at a production email provider (Resend already in use for notification emails — reuse same sender domain if possible).
+- Dedicated auth sender address (e.g. no-reply@bessemsmarketingservice.nl) with SPF + DKIM + DMARC configured on the domain.
+- Test invite + password-reset flows end-to-end with real emails.
+- Remove the `PHASE8_INVITE_SMOKE=1` test gate once rate limit is lifted — the full E2E test can run on every CI.
+
+No code change needed in the app — this is Supabase dashboard configuration. Docs update only: add a section to `docs/ENV.md` or a new `docs/PRODUCTION-CHECKLIST.md` listing this + other pre-launch infra tasks.
