@@ -1,5 +1,50 @@
 # Changelog
 
+## [Phase 7b-2c] — 2026-04-20 — reports: spend by branch, top products, AR aging, packer throughput
+
+Third slice of Phase 7b-2. Ships the first four reports plus per-report CSV export. `/reports` replaces the empty-state stub with a role-gated index. Accessibility audit + doc refresh remain for 7b-2d.
+
+### Reports
+- **Spend by branch** (admin + HQ Manager) — sum of `issued/paid/overdue` invoice totals grouped by branch, over a URL-driven `?from&to` window. Totals row + CSV export.
+- **Top products** (admin + HQ Manager) — line-net value + quantity grouped by SKU for orders past branch-approval in the window. Top 25 on screen, up to 200 in the CSV.
+- **AR aging** (admin only — finance territory) — unpaid invoices as a snapshot against `now()`, bucketed current / 1-30 / 31-60 / 61-90 / 90+ days overdue. Bucket totals summary + per-invoice table.
+- **Packer throughput** (admin + HQ Manager) — pallets packed per user in the window. `(system)` row for pallets with no `packed_by_user_id`. Per-packer pallet + distinct-order counts.
+
+### Access model
+- New `src/lib/auth/reports.ts` — single source of truth for per-report visibility (`REPORT_KINDS`, `canSeeReport`, `reportsVisibleTo`, `REPORT_META`). Same predicate drives the index card list, the per-page `redirect("/dashboard")` gate, AND the CSV route's 403 check — URL tampering can't leak data the page would refuse to render.
+
+### CSV export
+- One route handler `/api/reports/[kind]/csv` dispatches by kind; 404 for unknown kinds, 403 for disallowed role, 200 + `text/csv` otherwise.
+- Shared `src/lib/reports/csv.ts` — RFC 4180-flavoured builder (CRLF lines; quote cells with `,"`CR/LF; double-up interior quotes). `centsToDecimalString` renders bigint cents as `"12.34"` for CSV-friendly decimals. No external dep.
+- Download links live on each report page via `<WindowPicker>`; the AR-aging page renders the link inline (no date window).
+
+### Schema fit notes
+- Every report works against current schema — no migrations.
+- Top products uses `orders.branch_approved_at` as the window anchor (the earliest point a request becomes a committed spend). `draft` + `submitted` orders are excluded.
+- AR aging uses the same snapshot semantics as the Phase 5 overdue cron.
+
+### Sidebar
+- New "**Insights**" section holds the Reports link, gated to admin + HQ Manager. Moved Reports out of the Admin section (was admin-only); keeps the Admin section focused on write surfaces (Users, Branches, Audit log, Holidays).
+
+### Tests
+- **Vitest** 104/104 — 11 new in `tests/lib/reports-csv.test.ts` covering escaping rules, CRLF lines, null handling, number coercion, and the cents formatter.
+- **Playwright (desktop-1440)** new spec `tests-e2e/reports-7b2c.spec.ts` — 15 cases: role-based access to the index + each page (4), content assertions per report (4), CSV endpoint (200 for admin, 403 for branch_user, 403 on AR-aging for HQ, 404 for unknown kind), sidebar visibility (3). All 15 passed.
+- Smoke on `phase-1-happy-path`, `admin-surfaces-7b2a`, `archive-restore-7b2b` — 23/23 (sidebar was touched).
+- **Test discipline** per CLAUDE.md: reports are tables + date pickers, no new responsive layouts → desktop-1440 only.
+
+### Decisions made without asking
+- **AR aging uses "now" snapshot, not the window picker.** Aging-as-of-a-past-date is a different report and would need paid-date awareness to be correct historically. Deferred.
+- **Top products window anchor is `branch_approved_at`**, not `submitted_at` or `approved_at`. Submitted = request (can cancel); HQ approval = committed but not always used (branch-approved orders also commit via reservations). `branch_approved_at` is the earliest real spend commitment and is set the moment a BM signs off.
+- **"Insights" sidebar section** rather than leaving Reports inside Admin. HQ Manager now legitimately sees it; keeping it under "Admin" was becoming a misnomer.
+- **No charts in v1** — sortable tables are enough for the MVP audience. Chart-heavy layouts could land in a later polish pass if real use demands it.
+- **Top 25 on-screen, 200 in CSV** — screen scan is shallow; CSV is for drill-down.
+
+### Follow-ups
+- **7b-2d** — accessibility audit (WCAG 2.1 AA) + documentation refresh.
+- Out of scope for this PR: time-series (month-over-month trends), chart visualisations, point-in-time aging (historical snapshot rather than now).
+
+---
+
 ## [Phase 7b-2b] — 2026-04-20 — archive/restore UX across products, categories, branches, users
 
 Second slice of Phase 7b-2 (following the admin-surfaces slice queued as 7b-2a). Implements the cross-cutting **Archive / Restore UX** pattern from BACKLOG — every entity with a `deleted_at` column now has a matching restore surface so soft-deletes are reversible through the UI instead of requiring Studio access.
