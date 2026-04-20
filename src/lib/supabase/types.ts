@@ -385,6 +385,30 @@ export type Database = {
         }
         Relationships: []
       }
+      public_holidays: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          name: string
+          region: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          name: string
+          region?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          name?: string
+          region?: string
+        }
+        Relationships: []
+      }
       order_edit_history: {
         Row: {
           after_snapshot: Json
@@ -1183,6 +1207,14 @@ export type Database = {
     }
     Functions: {
       allocate_sequence: { Args: { p_key: string }; Returns: number }
+      cleanup_old_notifications: {
+        Args: {
+          p_cutoff: string
+          p_retention_days: number
+          p_max_count: number
+        }
+        Returns: { deleted_count: number; capped: boolean }[]
+      }
       current_user_has_branch: {
         Args: { target_branch: string }
         Returns: boolean

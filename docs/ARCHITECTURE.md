@@ -40,6 +40,22 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Cron scheduling (Phase 7b-1)
+
+Vercel Cron schedules are UTC and have no native timezone support. To run a cron at a fixed Europe/Amsterdam local hour year-round, this codebase uses a **double-schedule + in-handler hour gate** pattern:
+
+1. `vercel.json` registers TWO UTC schedules per cron — one matching CET (UTC+1, winter), one matching CEST (UTC+2, summer). Example for "08:00 Amsterdam":
+   ```json
+   { "path": "/api/cron/auto-cancel-stale-orders", "schedule": "0 6 * * *" },
+   { "path": "/api/cron/auto-cancel-stale-orders", "schedule": "0 7 * * *" }
+   ```
+2. Each cron handler calls `isExpectedAmsterdamHour(TARGET_AMS_HOUR)` from `src/lib/dates/dst-cron.ts` near the top of `GET`. The off-DST-half firing returns `{ ok: true, skipped: true, reason: "outside_target_hour" }` and does no work.
+3. The gate is **production-only** — skipped when `CRON_SECRET` is unset. Tests hit the cron route directly at arbitrary clock times.
+
+NL public holidays are loaded by `src/lib/dates/holidays.ts` (`loadActiveHolidays(db, 'NL')`) and threaded into `addWorkingDays` calls in the auto-cancel cron so a holiday cluster (e.g. Pasen Mon) doesn't count as elapsed working days. The loader is fail-soft (logs + returns `[]`) so a transient DB hiccup degrades to pre-7b-1 Mon–Fri-only behaviour rather than crashing the sweep.
+
+The destructive 90-day notifications cleanup cron (`/api/cron/cleanup-notifications`) is also DST-gated. Its actual SELECT → audit-INSERT → DELETE work happens inside the SQL function `public.cleanup_old_notifications` (migration `20260420000002`), wrapped as three modifying CTEs in a single statement so audit and delete commit or roll back together — a partial failure cannot leave deleted rows without an audit trail.
+
 ## Sortable list headers (Phase 7a)
 
 `/orders`, `/invoices`, `/returns` lists support URL-driven sort via `?sort=<col>&dir=asc|desc`. Pattern:

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  amsterdamHourNow,
+  isExpectedAmsterdamHour,
+} from "@/lib/dates/dst-cron";
 import { managersForBranch, type Recipient } from "@/lib/email/recipients";
 import { notify } from "@/lib/email/notify";
 import { renderInvoiceOverdueReminder } from "@/lib/email/templates";
@@ -10,9 +14,11 @@ import type { Database, Json } from "@/lib/supabase/types";
 /**
  * Phase 5 — nightly overdue-invoice cron (SPEC §8.6).
  *
- * Runs at 02:00 Europe/Amsterdam (vercel.json cron `0 0 * * *` UTC =
- * 02:00 CET in winter, 03:00 CEST in summer — same DST drift as the
- * other crons, tracked in BACKLOG's Phase 7 polish entry).
+ * Schedule: 02:00 Europe/Amsterdam, year-round. `vercel.json` ships
+ * TWO UTC schedules to handle DST: `0 0 * * *` matches 02:00 CEST
+ * (summer) and `0 1 * * *` matches 02:00 CET (winter). The DST gate
+ * at the top of GET (production only) suppresses the off-half firing.
+ * Phase 7b-1.
  *
  * Two things happen per run:
  *   1. Any `issued` invoice whose `due_at` has passed gets flipped
@@ -29,6 +35,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const REMINDER_DAYS = [7, 14, 30] as const;
+const TARGET_AMS_HOUR = 2;
 
 export async function GET(req: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;
@@ -37,6 +44,17 @@ export async function GET(req: Request): Promise<Response> {
     if (auth !== `Bearer ${secret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+  }
+
+  // DST gate — production-only so e2e can hit the cron at any time.
+  if (secret && !isExpectedAmsterdamHour(TARGET_AMS_HOUR)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "outside_target_hour",
+      target_hour_ams: TARGET_AMS_HOUR,
+      actual_hour_ams: amsterdamHourNow(),
+    });
   }
 
   const adm = createAdminClient();

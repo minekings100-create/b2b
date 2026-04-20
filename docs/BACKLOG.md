@@ -149,30 +149,16 @@ _(none yet)_
 
 ## Phase 7 — Polish
 
-### DST-aware cron scheduling
-_Captured: 2026-04-18 (from 3.2.2 plan)._
+### super_admin UI for `public_holidays` rows
+_Captured: 2026-04-20 (Phase 7b-1 carry-over)._
 
-Vercel Cron uses UTC, so a schedule pinned to "08:00 Europe/Amsterdam" drifts ±1h across DST boundaries. The auto-cancel cron (3.2.2c, `0 6 * * *` UTC = 08:00 winter / 09:00 CEST) and the awaiting-approval reminder cron (3.3.1, `15 0 * * *` UTC = 02:15 winter / 03:15 CEST) both have this. Acceptable for once-a-day jobs; revisit when a customer cares about exact wall-clock timing.
-
-**Options when picked up:** (a) split each cron into two schedules (one CET, one CEST) with an in-handler timezone gate, (b) move to a cron service with TZ-aware schedules (e.g. an external scheduler hitting our HTTP endpoints), or (c) move to Postgres `pg_cron` with `timezone('Europe/Amsterdam', now())` checks inside the handler.
-
-### Public holidays (NL) for working-days helper
-_Captured: 2026-04-18 (from 3.2.2 plan)._
-
-`src/lib/dates/working-days.ts` (3.2.2c) ships with a `holidays?: Date[]` option already plumbed through but no holiday data wired in. Phase 7 adds: (a) a small admin UI to manage NL public holidays (or import a static list — Koningsdag, Bevrijdingsdag, the standard set), (b) a server helper that loads the active list and passes it to every `addWorkingDays` / `isWorkingDay` call site (auto-cancel cron, invoice `due_at`).
-
-### 90-day notifications cleanup cron
-_Captured: 2026-04-19 (from the orphaned-notification follow-up to 3.3.2)._
-
-3.3.2 hides orphaned notifications (target order deleted) at the data layer + has a defensive click-time recheck. Both work, but old notifications still accumulate forever — over months / years that's a slow-growing dead-row problem on the `notifications` table.
+7b-1 shipped the `public_holidays` table + 2026/2027 NL seed + the loader that wires it into `addWorkingDays`. Future-year seeding currently requires Studio access. 7b-2 adds a small admin-only page (super_admin role) to add / edit / delete rows, so the calendar can be maintained from inside the app.
 
 **Behaviour when picked up:**
-- New cron route `/api/cron/cleanup-notifications` (or fold into the existing `/api/cron/auto-cancel-stale-orders` if both run on the same daily tick).
-- `DELETE FROM notifications WHERE sent_at < now() - interval '90 days' AND read_at IS NOT NULL` — only delete read rows past 90 days, leave unread alone forever (the user hasn't seen them yet).
-- Schedule: weekly (`0 6 * * 0` UTC = Sunday 08:00 winter) — daily is overkill for housekeeping.
-- `CRON_SECRET` Bearer guard, same as the other cron routes.
-- 90 days mirrors GDPR-friendly retention defaults; revisit alongside the broader Phase 7 retention policy.
-- Audit-log: skip — high-volume housekeeping; emit a single summary row per run if useful (`action='notifications_cleanup'`, `after_json={ deleted: N }`).
+- New page under `/admin/holidays` (or similar) — super_admin gated.
+- Table view of all rows for a region (default 'NL'), grouped by year.
+- Add / edit / delete via Server Actions; one `audit_log` row per change (`entity_type='public_holiday'`, `action='public_holiday_added/updated/deleted'`).
+- Optional convenience: "Seed NL year YYYY" button that bulk-inserts the 11 standard rows (with computed Easter-derived dates).
 
 ### Sortable column headers on order tables
 _Captured: 2026-04-19._
