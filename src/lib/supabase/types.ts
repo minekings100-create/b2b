@@ -521,16 +521,21 @@ export type Database = {
           branch_approved_at: string | null
           branch_approved_by_user_id: string | null
           branch_id: string
+          claimed_at: string | null
+          claimed_by_user_id: string | null
           created_at: string
           created_by_user_id: string
           deleted_at: string | null
           edit_count: number
           id: string
+          is_rush: boolean
           last_edited_at: string | null
           last_edited_by_user_id: string | null
           notes: string | null
           order_number: string
           rejection_reason: string | null
+          rush_set_at: string | null
+          rush_set_by_user_id: string | null
           status: Database["public"]["Enums"]["order_status"]
           submitted_at: string | null
           total_gross_cents: number
@@ -544,16 +549,21 @@ export type Database = {
           branch_approved_at?: string | null
           branch_approved_by_user_id?: string | null
           branch_id: string
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           created_at?: string
           created_by_user_id: string
           deleted_at?: string | null
           edit_count?: number
           id?: string
+          is_rush?: boolean
           last_edited_at?: string | null
           last_edited_by_user_id?: string | null
           notes?: string | null
           order_number: string
           rejection_reason?: string | null
+          rush_set_at?: string | null
+          rush_set_by_user_id?: string | null
           status?: Database["public"]["Enums"]["order_status"]
           submitted_at?: string | null
           total_gross_cents?: number
@@ -567,16 +577,21 @@ export type Database = {
           branch_approved_at?: string | null
           branch_approved_by_user_id?: string | null
           branch_id?: string
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           created_at?: string
           created_by_user_id?: string
           deleted_at?: string | null
           edit_count?: number
           id?: string
+          is_rush?: boolean
           last_edited_at?: string | null
           last_edited_by_user_id?: string | null
           notes?: string | null
           order_number?: string
           rejection_reason?: string | null
+          rush_set_at?: string | null
+          rush_set_by_user_id?: string | null
           status?: Database["public"]["Enums"]["order_status"]
           submitted_at?: string | null
           total_gross_cents?: number

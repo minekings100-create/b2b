@@ -1,7 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
-import { AlertTriangle, Send } from "lucide-react";
+import { AlertTriangle, Send, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
@@ -12,12 +12,27 @@ import { submitOrderFormAction } from "@/lib/actions/cart";
  * Plain submit form — the server action redirects on both outcomes (success
  * → /orders, blocked by outstanding invoices → /cart?block=outstanding).
  * No useFormState: we rely on server-side rendering of the block banner.
+ *
+ * Phase 8 — optional `is_rush` checkbox; when checked the submit flips
+ * `orders.is_rush=true` and the pack queue floats the row.
  */
 export function SubmitCart({ orderId }: { orderId: string }) {
   return (
-    <form action={submitOrderFormAction}>
+    <form action={submitOrderFormAction} className="flex flex-wrap items-center gap-3">
       <input type="hidden" name="order_id" value={orderId} />
       <input type="hidden" name="confirm_override" value="" />
+      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-fg-muted">
+        <input
+          type="checkbox"
+          name="is_rush"
+          data-testid="is-rush-checkbox"
+          className="h-3.5 w-3.5 rounded border-border accent-danger"
+        />
+        <span className="inline-flex items-center gap-1">
+          <Zap className="h-3 w-3" aria-hidden />
+          Mark as rush
+        </span>
+      </label>
       <SubmitBtn />
     </form>
   );

@@ -1,6 +1,11 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  PACK_CLAIM_TTL_MINUTES,
+  sweepExpiredClaims,
+} from "@/lib/pack/claim-ttl";
 import type { Database } from "@/lib/supabase/types";
 
 /**
@@ -30,26 +35,65 @@ export type PackQueueRow = {
   total_qty_approved: number;
   total_qty_packed: number;
   has_backorder: boolean;
+  // Phase 8 — rush + claim state.
+  is_rush: boolean;
+  claimed_by_user_id: string | null;
+  claimed_by_email: string | null;
+  claimed_at: string | null;
 };
 
+/**
+ * Pack queue fetch. Phase 8 changes:
+ *  - Sweeps expired claims first (see `src/lib/pack/claim-ttl.ts`) so
+ *    stale rows are always cleaned up on queue render.
+ *  - Sorts `is_rush DESC, approved_at ASC` — rushed orders float to the
+ *    top regardless of FIFO. Matches the partial index added in
+ *    20260421000001.
+ *  - Returns claim state (+ the claimer's email, hydrated from users)
+ *    so the row component can render "Claimed by X" / "Available".
+ */
 export async function fetchPackQueue(): Promise<PackQueueRow[]> {
+  // Cleanup pass — runs via the admin client so a failed write (e.g.
+  // transient RLS hiccup) doesn't abort the read that follows.
+  const adm = createAdminClient();
+  await sweepExpiredClaims(adm);
+
   const supabase = createClient();
-  // RLS already restricts to fulfilment statuses for packers; we still
-  // narrow explicitly so admins also see only the active queue.
   const { data, error } = await supabase
     .from("orders")
     .select(
       `
         id, order_number, status, approved_at,
+        is_rush, claimed_by_user_id, claimed_at,
         branches:branch_id (branch_code, name),
         order_items (quantity_approved, quantity_packed)
       `,
     )
     .in("status", ["approved", "picking"])
     .is("deleted_at", null)
+    .order("is_rush", { ascending: false })
     .order("approved_at", { ascending: true })
     .limit(200);
   if (error) throw new Error(`fetchPackQueue: ${error.message}`);
+
+  // Hydrate claimer emails in one batch lookup — the queue is capped at
+  // 200 and at most one entry per packer ever holds a claim, so this is
+  // small.
+  const claimerIds = Array.from(
+    new Set(
+      (data ?? [])
+        .map((r) => r.claimed_by_user_id)
+        .filter((x): x is string => typeof x === "string"),
+    ),
+  );
+  const emailByUid = new Map<string, string>();
+  if (claimerIds.length > 0) {
+    const { data: users } = await adm
+      .from("users")
+      .select("id, email")
+      .in("id", claimerIds);
+    for (const u of users ?? []) emailByUid.set(u.id, u.email);
+  }
 
   return (data ?? []).map((o) => {
     const items = o.order_items ?? [];
@@ -73,9 +117,19 @@ export async function fetchPackQueue(): Promise<PackQueueRow[]> {
           (i.quantity_approved ?? 0) > 0 &&
           i.quantity_approved! < i.quantity_packed,
       ),
+      is_rush: o.is_rush,
+      claimed_by_user_id: o.claimed_by_user_id,
+      claimed_by_email: o.claimed_by_user_id
+        ? (emailByUid.get(o.claimed_by_user_id) ?? null)
+        : null,
+      claimed_at: o.claimed_at,
     };
   });
 }
+
+// Re-export the TTL so UI layers can surface it in copy without
+// duplicating the constant.
+export { PACK_CLAIM_TTL_MINUTES };
 
 export type PickListLine = {
   id: string;
@@ -114,17 +168,26 @@ export type PickListDetail = {
   notes: string | null;
   lines: PickListLine[];
   pallets: PickListPallet[];
+  // Phase 8 — claim + rush state so the pack page can gate actions.
+  is_rush: boolean;
+  claimed_by_user_id: string | null;
+  claimed_by_email: string | null;
+  claimed_at: string | null;
 };
 
 export async function fetchPickList(
   orderId: string,
 ): Promise<PickListDetail | null> {
+  // Run the claim sweep before reading so stale claims don't block the
+  // current packer's view of their own order.
+  await sweepExpiredClaims(createAdminClient());
   const supabase = createClient();
   const { data: order, error: orderErr } = await supabase
     .from("orders")
     .select(
       `
         id, order_number, status, approved_at, notes,
+        is_rush, claimed_by_user_id, claimed_at,
         branches:branch_id (branch_code, name),
         order_items (
           id, product_id, quantity_approved, quantity_packed,
@@ -141,6 +204,18 @@ export async function fetchPickList(
     .maybeSingle();
   if (orderErr) throw new Error(`fetchPickList(order): ${orderErr.message}`);
   if (!order) return null;
+
+  // Claimer email — single lookup via admin client because RLS on
+  // `users` may not let a packer see the other packer's row.
+  let claimedByEmail: string | null = null;
+  if (order.claimed_by_user_id) {
+    const { data: u } = await createAdminClient()
+      .from("users")
+      .select("email")
+      .eq("id", order.claimed_by_user_id)
+      .maybeSingle();
+    claimedByEmail = u?.email ?? null;
+  }
 
   // Pallets + their items + packed_by email lookup.
   const { data: pallets, error: palletsErr } = await supabase
@@ -237,5 +312,9 @@ export async function fetchPickList(
     notes: order.notes,
     lines,
     pallets: palletsOut,
+    is_rush: order.is_rush,
+    claimed_by_user_id: order.claimed_by_user_id,
+    claimed_by_email: claimedByEmail,
+    claimed_at: order.claimed_at,
   };
 }

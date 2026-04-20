@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Lock, Printer } from "lucide-react";
 
 import { PageHeader } from "@/components/ui/page-header";
 import { OrderStatusPill } from "@/components/app/order-status-pill";
@@ -12,13 +12,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getUserWithRoles } from "@/lib/auth/session";
-import { hasAnyRole } from "@/lib/auth/roles";
+import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
 import { fetchPickList } from "@/lib/db/packing";
 
 import { ScanInput } from "./_components/scan-input.client";
 import { PalletPanel } from "./_components/pallet-panel.client";
 import { CompletePackButton } from "./_components/complete-pack-button.client";
 import { PickList } from "./_components/pick-list.client";
+import { ClaimButtons } from "../_components/claim-buttons.client";
+import { RushBadge } from "../_components/rush-badge";
 
 export const metadata = { title: "Pick & pack" };
 
@@ -48,11 +50,22 @@ export default async function PickPackPage({
   const detail = await fetchPickList(params.orderId);
   if (!detail) notFound();
 
+  const myUid = session.user.id;
+  const admin = isAdmin(session.roles);
+  const mine = detail.claimed_by_user_id === myUid;
+  const claimedByOther =
+    detail.claimed_by_user_id !== null && !mine;
+
   // Only `approved` / `picking` orders are actionable here. For
   // already-packed / shipped / delivered orders, flip to a read-only
   // summary so the packer can still see the PDFs + pallet breakdown.
-  const isActionable =
+  //
+  // Phase 8 — additionally, if the order is claimed by another packer,
+  // gate packing actions. Admins can still act (they might be resolving
+  // an abandoned workspace).
+  const actionableStatus =
     detail.status === "approved" || detail.status === "picking";
+  const isActionable = actionableStatus && !(claimedByOther && !admin);
 
   const totalApproved = detail.lines.reduce(
     (sum, l) => sum + l.quantity_approved,
@@ -110,6 +123,48 @@ export default async function PickPackPage({
       />
       <div className="flex flex-col gap-6 px-gutter pb-12 lg:flex-row">
         <div className="min-w-0 flex-1 space-y-6">
+          {actionableStatus ? (
+            <div
+              className="flex flex-wrap items-center gap-3 rounded-lg bg-surface p-3 ring-1 ring-border"
+              data-testid="claim-banner"
+              data-claim-state={
+                mine ? "mine" : claimedByOther ? "other" : "available"
+              }
+            >
+              {detail.is_rush ? <RushBadge /> : null}
+              {claimedByOther ? (
+                <span className="inline-flex items-center gap-2 text-sm">
+                  <Lock className="h-4 w-4 text-fg-subtle" aria-hidden />
+                  <span>
+                    Claimed by{" "}
+                    <span className="font-medium">
+                      {detail.claimed_by_email ?? "another packer"}
+                    </span>
+                    {". "}Pack actions are disabled for you.
+                  </span>
+                </span>
+              ) : mine ? (
+                <span className="text-sm text-fg-muted">
+                  You hold this claim.
+                </span>
+              ) : (
+                <span className="text-sm text-fg-muted">
+                  No packer has claimed this order yet.
+                </span>
+              )}
+              <div className="ml-auto">
+                <ClaimButtons
+                  orderId={detail.id}
+                  orderNumber={detail.order_number}
+                  mine={mine}
+                  claimedByEmail={
+                    claimedByOther ? detail.claimed_by_email : null
+                  }
+                  isAdmin={admin}
+                />
+              </div>
+            </div>
+          ) : null}
           {isActionable ? <ScanInput orderId={detail.id} /> : null}
           <div>
             <div className="mb-2 flex items-center justify-between text-xs text-fg-muted">

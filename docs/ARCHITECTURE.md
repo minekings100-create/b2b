@@ -40,6 +40,21 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Pack claim + rush (Phase 8)
+
+Packer v2 adds two independent behaviours on top of the Phase 4 pick/pack flow:
+
+**Claim system.** A packer "claims" an order while they're working on it so other packers don't duplicate the pick. Claims live on `orders.claimed_by_user_id` + `claimed_at` (CHECK: both set or neither). Lifecycle:
+1. `claimOrder` (packer-only) — race-safe via a column guard: `.or(claimed_by_user_id.is.null,claimed_by_user_id.eq.<me>)`. If a second packer races in the UPDATE affects 0 rows and the action returns an error.
+2. `releaseOrder` — the holder OR an admin (override writes `action='order_claim_admin_release'`).
+3. **Lazy TTL cleanup.** `sweepExpiredClaims()` in `src/lib/pack/claim-ttl.ts` clears claims older than `PACK_CLAIM_TTL_MINUTES` (30) at the top of every pack queue render AND at the top of `claimOrder`. Writes one `audit_log` row per cleared claim (`action='order_claim_expired'`, `actor_user_id=null`). No background timer — the age check runs exactly where it's consumed.
+
+The pack detail page (`/pack/[orderId]`) uses claim state to gate: when claimed-by-other, the ScanInput / CompletePackButton / PalletPanel are not rendered. Admins bypass the gate (they might be unstucking an abandoned workspace).
+
+**Rush flag.** `orders.is_rush` + audit columns. Set at submit (creator checkbox in the cart submit form, handled inline in `submitOrder`) or post-submit by HQ / admin via `setRush` (refused once `packed` is reached — flipping there has no queue effect). The pack queue sorts `is_rush DESC, approved_at ASC`, backed by the partial index `orders_pack_queue_idx`.
+
+**Pick-any reorder.** The packer queue is FIFO with rush on top; the packer is free to open ANY non-claimed row directly — no enforced ordering lock. Ruled out per-user preference state (localStorage would paint-mismatch the server render; a DB table would add schema for an unproven feature).
+
 ## Reports (Phase 7b-2c)
 
 The `/reports` tree is a set of admin/HQ-scoped aggregate views over existing tables. Each report is its own sub-route with a URL-driven date window (`?from=YYYY-MM-DD&to=YYYY-MM-DD`) and a matching CSV export at `/api/reports/[kind]/csv`.

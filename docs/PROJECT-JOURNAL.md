@@ -327,3 +327,11 @@ See `docs/BACKLOG.md` for full detail. Summary:
 - **Vitest** — 12 suite files, 104 tests (unit + RLS).
 - **Playwright** — 31 spec files, spanning auth, catalog, cart, approvals, packing, invoicing, payments, RMA, notifications, dashboards, reports, archive/restore, admin surfaces, crons, a11y.
 - Default CI cadence (per CLAUDE.md): desktop-1440 only unless the PR touches responsive layout or a11y, in which case all 3 viewports (desktop-1440, tablet-768, mobile-375) are run.
+
+---
+
+## Post-MVP — Phase 8 — Packer workflow v2 (2026-04-21)
+
+First post-MVP enhancement. Adds claim system + rush flag + pick-any freedom to the packer experience. One PR, one migration. See `docs/CHANGELOG.md` for the ship notes.
+
+**Phase number clarification**: the brief assigned "Phase 8" to this work. The existing BACKLOG entry originally captured as "Phase 8 — in-portal messaging between roles" stays on BACKLOG as a **proposed** post-MVP phase; it has not been renumbered yet (would go to Phase 9 if accepted). SPEC §11 is not modified — the build phases there describe the MVP; Phase 8 is the first post-MVP slot in use.
