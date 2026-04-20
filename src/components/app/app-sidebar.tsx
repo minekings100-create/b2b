@@ -51,6 +51,18 @@ export function AppSidebar({
     isHqManager(roles) ||
     isAdmin(roles);
   const canPack = hasAnyRole(roles, ["packer"]);
+  // Packers have no relationship with invoicing; hide the tab for
+  // pure-packer sessions. If a user carries additional roles (e.g.
+  // a packer who is also a branch_user), the Invoices tab stays.
+  const hideInvoices =
+    canPack &&
+    !hasAnyRole(roles, [
+      "branch_user",
+      "branch_manager",
+      "hq_operations_manager",
+      "administration",
+      "super_admin",
+    ]);
   const admin = isAdmin(roles);
   const superAdmin = isSuperAdmin(roles);
   const ordersLabel = viewsOrdersCrossBranch(roles)
@@ -85,14 +97,16 @@ export function AppSidebar({
             active={is("/orders")}
             shortcut="go"
           />
-          <SidebarItem
-            as="a"
-            href="/invoices"
-            icon={<FileText className="h-4 w-4" />}
-            label="Invoices"
-            active={is("/invoices")}
-            shortcut="gi"
-          />
+          {!hideInvoices ? (
+            <SidebarItem
+              as="a"
+              href="/invoices"
+              icon={<FileText className="h-4 w-4" />}
+              label="Invoices"
+              active={is("/invoices")}
+              shortcut="gi"
+            />
+          ) : null}
           <SidebarItem
             as="a"
             href="/catalog"
