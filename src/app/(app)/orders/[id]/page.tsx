@@ -13,6 +13,8 @@ import {
 import { OrderStatusPill } from "@/components/app/order-status-pill";
 import { ActivityTimeline } from "@/components/app/activity-timeline";
 import { OrderEditHistory } from "@/components/app/order-edit-history";
+import { RushBadge } from "../../pack/_components/rush-badge";
+import { RushToggle } from "./_components/rush-toggle.client";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { isAdmin, isHqManager } from "@/lib/auth/roles";
 import { fetchOrderDetail } from "@/lib/db/order-detail";
@@ -150,6 +152,23 @@ export default async function OrderDetailPage({
           className="flex flex-wrap items-center gap-x-4 gap-y-1.5"
         >
           <OrderStatusPill status={order.status} size="lg" />
+          {order.is_rush ? <RushBadge /> : null}
+          {/* Phase 8 — HQ / admin rush toggle. Only renders while the
+              order is still in a pre-packed stage; past that the flag
+              has no queue effect and the action refuses. */}
+          {(admin || hq) &&
+          [
+            "submitted",
+            "branch_approved",
+            "approved",
+            "picking",
+          ].includes(order.status) ? (
+            <RushToggle
+              orderId={order.id}
+              orderNumber={order.order_number}
+              isRush={order.is_rush}
+            />
+          ) : null}
           {order.branch_approved_by_email ? (
             <span className="text-sm text-fg-muted">
               <span>Branch-approved by</span>{" "}

@@ -32,6 +32,15 @@ export type OrderDetail = {
   last_edited_at: string | null;
   last_edited_by_user_id: string | null;
   last_edited_by_email: string | null;
+  // Phase 8 — rush flag (shown as a pill in the status banner) + claim
+  // state (optional; only populated if the order is in a fulfilment
+  // stage — drafts / submitted / approved-pending don't carry claims).
+  is_rush: boolean;
+  rush_set_at: string | null;
+  rush_set_by_user_id: string | null;
+  claimed_by_user_id: string | null;
+  claimed_by_email: string | null;
+  claimed_at: string | null;
   items: OrderDetailLine[];
   timeline: OrderTimelineEntry[];
 };
@@ -83,6 +92,11 @@ type RawOrder = {
   edit_count: number;
   last_edited_at: string | null;
   last_edited_by_user_id: string | null;
+  is_rush: boolean;
+  rush_set_at: string | null;
+  rush_set_by_user_id: string | null;
+  claimed_by_user_id: string | null;
+  claimed_at: string | null;
   branches:
     | { branch_code: string; name: string }
     | { branch_code: string; name: string }[]
@@ -125,6 +139,8 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
        rejection_reason, notes,
        total_net_cents, total_vat_cents, total_gross_cents,
        edit_count, last_edited_at, last_edited_by_user_id,
+       is_rush, rush_set_at, rush_set_by_user_id,
+       claimed_by_user_id, claimed_at,
        branches ( branch_code, name ),
        users!orders_created_by_user_id_fkey ( email ),
        order_items (
@@ -264,6 +280,14 @@ export async function fetchOrderDetail(id: string): Promise<OrderDetail | null> 
     last_edited_at: row.last_edited_at,
     last_edited_by_user_id: row.last_edited_by_user_id,
     last_edited_by_email: lastEditedByEmail,
+    is_rush: row.is_rush,
+    rush_set_at: row.rush_set_at,
+    rush_set_by_user_id: row.rush_set_by_user_id,
+    claimed_by_user_id: row.claimed_by_user_id,
+    claimed_by_email: row.claimed_by_user_id
+      ? (actorEmails.get(row.claimed_by_user_id) ?? null)
+      : null,
+    claimed_at: row.claimed_at,
     items,
     timeline,
   };

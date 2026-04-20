@@ -1,5 +1,52 @@
 # Changelog
 
+## [Phase 8] — 2026-04-21 — packer workflow v2 (claim system + rush flag + pick-any)
+
+Post-MVP enhancement. Three additions to the packer experience, one PR.
+
+### Claim system
+- New columns on `orders`: `claimed_by_user_id`, `claimed_at` (CHECK: both set or neither).
+- `claimOrder` / `releaseOrder` Server Actions in `src/lib/actions/pack-claim.ts`. Claim uses a race-safe `.or(claimed_by_user_id.is.null,claimed_by_user_id.eq.<me>)` guard so two packers can't claim the same row in flight.
+- **Lazy TTL cleanup (30 min).** Option (a) from the PR thread: `sweepExpiredClaims()` clears claims older than `PACK_CLAIM_TTL_MINUTES` at the top of every pack queue render AND at the top of `claimOrder`. Writes one `audit_log` row per cleared claim (`action='order_claim_expired'`, `actor_user_id=null`). No background timer, no DB trigger — the age check runs exactly where it's consumed.
+- **Admin override release**: any admin / super_admin can release another packer's claim; the action writes `action='order_claim_admin_release'` so the override is auditable.
+- **Pack detail gating**: when an order is claimed by another packer, the pack workspace disables ScanInput, CompletePackButton, and PalletPanel actions. The current claim holder (mine) and admins keep full access.
+
+### Rush flag
+- New columns on `orders`: `is_rush` (boolean, default false), `rush_set_by_user_id`, `rush_set_at`.
+- **At submit** — creator checks "Mark as rush" in the cart submit form. Handled inline in `submitOrder` to avoid a double-write.
+- **Post-submit** — HQ Manager / admin toggle on the order detail page via `setRush` Server Action. Refused once the order reaches `packed` or beyond (flipping there has no queue effect).
+- **Queue sort**: `is_rush DESC, approved_at ASC`. Partial btree index `orders_pack_queue_idx` tuned to the query shape.
+- Visual: `<RushBadge>` — lightning icon + danger-subtle background. Renders on the queue row (left of the order number) AND on the order detail's status banner.
+
+### Pick-any reorder
+- **Chosen interpretation**: "packer picks any unclaimed row, no enforced FIFO lock". The queue renders `is_rush DESC, approved_at ASC`; the packer is free to click any non-claimed-by-someone-else row directly.
+- **What we did NOT build**: per-user ordering (localStorage or a DB table). Ruled out because (a) localStorage reorder causes a server/client paint mismatch on the queue, (b) a DB table for personal preference adds schema for an unproven feature. Happy to revisit if real packers ask for it.
+
+### Migrations
+- `20260421000001_pack_queue_v2.sql` — columns + CHECK + indexes + column comments.
+
+### Tests
+- **Vitest** — 104/104 unchanged (no pure-module logic added; all flow is in actions).
+- **Playwright (desktop-1440)** new spec `tests-e2e/phase-8-packer-workflow-v2.spec.ts` — 8 cases:
+  - claim + release round-trip with audit trail check
+  - other packer sees "Claimed by <name>" + cannot act
+  - stale-claim lazy cleanup (seed 45-min-old claim → packer lands on queue → claim cleared + `order_claim_expired` audit row written)
+  - admin override release
+  - rush sort-first (rushed order floats above older non-rush)
+  - HQ rush toggle + audit row
+  - branch user sees NO rush toggle (gate check)
+  - pick-any (packer opens 3rd row directly from queue)
+- Smoke on `pack-phase-4` + `packer-sidebar-and-order-detail-fix` + `cart-submit` — 16/16 pass.
+- **Test discipline** per CLAUDE.md: table row + button surfaces with no new responsive layouts → desktop-1440 only.
+
+### Decisions made without asking
+- **Claim both-or-neither CHECK constraint** rather than triggers. Runs on every write for free; the invariant is simple enough that it doesn't need plpgsql.
+- **Admin client inside Server Actions for the read probe + sweep** — the sweep runs even from a read-only context (packer hitting the queue page) and must not throw on RLS hiccups. Writes (claim / release / rush) still bind the audit row to the actor uid via the session client.
+- **Rush toggle hidden for branch users on the order detail page** even though the creator-at-submit path is open to them via the cart submit form. Rationale: post-submit rush escalation is a workflow decision that belongs with HQ / admin; keeping the creator in the submit-time path avoids a second "please mark my order rush" surface.
+- **`Phase 8` name**: brief called it "Packer workflow v2". The BACKLOG entry for "Phase 8 — in-portal messaging" is renumbered in PROJECT-JOURNAL (reverts to BACKLOG proposal; not a SPEC §11 phase).
+
+---
+
 ## [Phase 7b-2d] — 2026-04-20 — WCAG 2.1 AA audit + doc refresh — MVP COMPLETE
 
 Final slice of Phase 7b-2 and the closing phase of MVP. Runs axe-playwright across every representative route, fixes serious/critical violations, refreshes the docs to reflect what actually shipped vs what was originally planned.

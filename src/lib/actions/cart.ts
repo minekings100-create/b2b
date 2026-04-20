@@ -397,12 +397,23 @@ export async function submitOrder(
   const now = new Date();
   const orderNumber = await allocateOrderNumber(supabase, now);
 
+  // Phase 8 — carry the rush flag through at submit. `rush_set_by` is
+  // the creator in this code path; HQ / admin can also flip it post-
+  // submit via `setRush` in `src/lib/actions/pack-rush.ts`.
+  const rushPatch = parsed.data.is_rush
+    ? {
+        is_rush: true,
+        rush_set_by_user_id: session.user.id,
+        rush_set_at: now.toISOString(),
+      }
+    : {};
   const { error: updErr } = await supabase
     .from("orders")
     .update({
       order_number: orderNumber,
       status: "submitted",
       submitted_at: now.toISOString(),
+      ...rushPatch,
     })
     .eq("id", order.id)
     .eq("status", "draft");

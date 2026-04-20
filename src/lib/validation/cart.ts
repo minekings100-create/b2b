@@ -31,5 +31,15 @@ export const SubmitOrderInput = z.object({
       z.boolean(),
     )
     .default(false),
+  // Phase 8 — creator flags the order as rush at submit time. Native
+  // HTML checkboxes POST "on" when checked and omit the field when
+  // unchecked, so treat "on"/"true"/true as true and everything else
+  // as false.
+  is_rush: z
+    .preprocess(
+      (v) => (v === "on" || v === "true" || v === true ? true : false),
+      z.boolean(),
+    )
+    .default(false),
 });
 export type SubmitOrderInputT = z.infer<typeof SubmitOrderInput>;
