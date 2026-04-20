@@ -1182,6 +1182,7 @@ export type Database = {
           email: string
           full_name: string | null
           id: string
+          login_disabled: boolean
           notification_preferences: Json
           phone: string | null
           ui_catalog_view: Database["public"]["Enums"]["ui_catalog_view"]
@@ -1195,6 +1196,7 @@ export type Database = {
           email: string
           full_name?: string | null
           id: string
+          login_disabled?: boolean
           notification_preferences?: Json
           phone?: string | null
           ui_catalog_view?: Database["public"]["Enums"]["ui_catalog_view"]
@@ -1208,6 +1210,7 @@ export type Database = {
           email?: string
           full_name?: string | null
           id?: string
+          login_disabled?: boolean
           notification_preferences?: Json
           phone?: string | null
           ui_catalog_view?: Database["public"]["Enums"]["ui_catalog_view"]

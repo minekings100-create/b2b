@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, ArchiveRestore } from "lucide-react";
 
@@ -49,7 +50,14 @@ function ActiveRow({ row }: { row: BranchRowData }) {
 
   return (
     <TableRow>
-      <TableCell className="font-numeric text-fg-muted">{row.branch_code}</TableCell>
+      <TableCell className="font-numeric text-fg-muted">
+        <Link
+          href={`/branches/${row.id}`}
+          className="text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring rounded-sm"
+        >
+          {row.branch_code}
+        </Link>
+      </TableCell>
       <TableCell className="font-medium">{row.name}</TableCell>
       <TableCell className="hidden md:table-cell text-fg-muted">
         {row.email ?? "—"}

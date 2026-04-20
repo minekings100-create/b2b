@@ -2,6 +2,7 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Archive, ArchiveRestore } from "lucide-react";
 
@@ -49,7 +50,14 @@ function ActiveRow({ row }: { row: UserRowData }) {
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{row.email}</TableCell>
+      <TableCell className="font-medium">
+        <Link
+          href={`/users/${row.id}`}
+          className="text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring rounded-sm"
+        >
+          {row.email}
+        </Link>
+      </TableCell>
       <TableCell className="hidden md:table-cell text-fg-muted">
         {row.full_name ?? "—"}
       </TableCell>

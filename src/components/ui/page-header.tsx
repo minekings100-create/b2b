@@ -41,7 +41,7 @@ export function Breadcrumbs({ items }: { items: BreadcrumbItem[] }) {
 
 export interface PageHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   breadcrumbs?: BreadcrumbItem[];
   actions?: React.ReactNode;
 }
