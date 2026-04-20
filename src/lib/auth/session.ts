@@ -25,7 +25,7 @@ export const getUserWithRoles = cache(async () => {
     supabase
       .from("users")
       .select(
-        "id, email, full_name, phone, active, login_disabled, ui_theme, ui_catalog_view",
+        "id, email, full_name, phone, active, login_disabled, ui_theme, ui_catalog_view, welcome_dismissed_at",
       )
       .eq("id", user.id)
       .maybeSingle(),

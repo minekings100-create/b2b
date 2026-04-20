@@ -19,7 +19,7 @@ export async function GET(): Promise<Response> {
     return NextResponse.json(snapshot);
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to load notifications" },
+      { error: e instanceof Error ? e.message : "Couldn't load notifications" },
       { status: 500 },
     );
   }

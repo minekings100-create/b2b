@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { siblingsByGroup, type VariantSibling } from "./variants";
 
 const PRODUCT_IMAGES_BUCKET = "product-images";
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
@@ -29,6 +30,10 @@ export type CatalogProduct = {
   } | null;
   available: number;
   in_stock: boolean;
+  variant_group_id: string | null;
+  variant_label: string | null;
+  /** Siblings in the same variant group (includes this product itself). */
+  variants: VariantSibling[];
 };
 
 export type CatalogCategory = { id: string; name: string; sort_order: number };
@@ -68,6 +73,8 @@ type RawRow = {
   category_id: string | null;
   image_path: string | null;
   deleted_at: string | null;
+  variant_group_id: string | null;
+  variant_label: string | null;
   product_categories: { name: string } | null;
   // PostgREST returns a single object for 1:1 relationships (inventory's
   // FK on product_id is unique). When there is no matching row, it may
@@ -130,6 +137,7 @@ export async function fetchCatalogPage(
     .select(
       `id, sku, name, description, unit, unit_price_cents, vat_rate,
        min_order_qty, max_order_qty, category_id, image_path, deleted_at,
+       variant_group_id, variant_label,
        product_categories (name),
        inventory (quantity_on_hand, quantity_reserved, reorder_level, warehouse_location)`,
       { count: "exact" },
@@ -161,9 +169,38 @@ export async function fetchCatalogPage(
   if (error) throw error;
 
   const rawRows = (data ?? []) as unknown as RawRow[];
-  const signedUrlMap = await signImagePaths(
-    rawRows.map((r) => r.image_path).filter((p): p is string => Boolean(p)),
+
+  // Fan out variant siblings in one query for every grouped row on this page.
+  const groupIds = Array.from(
+    new Set(
+      rawRows
+        .map((r) => r.variant_group_id)
+        .filter((g): g is string => Boolean(g)),
+    ),
   );
+  const siblings = await siblingsByGroup(groupIds);
+
+  // Collect every image_path we'll need URLs for — both main rows and
+  // any sibling variants — into one batch-sign call. Sibling swaps stay
+  // network-free after this.
+  const allPaths = new Set<string>();
+  for (const r of rawRows) {
+    if (r.image_path) allPaths.add(r.image_path);
+  }
+  for (const list of siblings.values()) {
+    for (const s of list) if (s.image_path) allPaths.add(s.image_path);
+  }
+  const signedUrlMap = await signImagePaths(Array.from(allPaths));
+
+  // Enrich siblings with their resolved signed URLs so the client-side
+  // variant switcher can render without another round trip.
+  for (const list of siblings.values()) {
+    for (const s of list) {
+      s.image_url = s.image_path
+        ? signedUrlMap.get(s.image_path) ?? null
+        : null;
+    }
+  }
 
   const mapped: CatalogProduct[] = rawRows.map((row) => {
     const inv = normalizeInventory(row.inventory);
@@ -188,6 +225,11 @@ export async function fetchCatalogPage(
       inventory: inv,
       available,
       in_stock: available > 0,
+      variant_group_id: row.variant_group_id,
+      variant_label: row.variant_label,
+      variants: row.variant_group_id
+        ? siblings.get(row.variant_group_id) ?? []
+        : [],
     };
   });
 
@@ -266,6 +308,7 @@ export async function fetchProductDetail(
     .select(
       `id, sku, name, description, unit, unit_price_cents, vat_rate,
        min_order_qty, max_order_qty, category_id, image_path, deleted_at,
+       variant_group_id, variant_label,
        product_categories (name),
        inventory (quantity_on_hand, quantity_reserved, reorder_level, warehouse_location),
        product_barcodes (id, barcode, unit_multiplier)`,
@@ -289,7 +332,22 @@ export async function fetchProductDetail(
   const reserved = inv?.quantity_reserved ?? 0;
   const available = Math.max(0, onHand - reserved);
 
-  const signedUrlMap = row.image_path ? await signImagePaths([row.image_path]) : null;
+  const variants = row.variant_group_id
+    ? (await siblingsByGroup([row.variant_group_id])).get(
+        row.variant_group_id,
+      ) ?? []
+    : [];
+
+  // Sign the main image + every sibling image in one batch.
+  const paths = new Set<string>();
+  if (row.image_path) paths.add(row.image_path);
+  for (const v of variants) if (v.image_path) paths.add(v.image_path);
+  const signedUrlMap = paths.size > 0 ? await signImagePaths(Array.from(paths)) : null;
+  for (const v of variants) {
+    v.image_url = v.image_path && signedUrlMap
+      ? signedUrlMap.get(v.image_path) ?? null
+      : null;
+  }
 
   return {
     id: row.id,
@@ -312,6 +370,9 @@ export async function fetchProductDetail(
     inventory: inv,
     available,
     in_stock: available > 0,
+    variant_group_id: row.variant_group_id,
+    variant_label: row.variant_label,
+    variants,
     barcodes: (row.product_barcodes ?? [])
       .filter((b) => !b.deleted_at)
       .map((b) => ({

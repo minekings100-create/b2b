@@ -18,6 +18,20 @@ export function formatAbsolute(iso: string): string {
   });
 }
 
+/**
+ * "18 Apr 2026" — same day/month/year as `formatAbsolute` but without
+ * the time. Use anywhere you'd otherwise drop the ISO date straight into
+ * the UI. Copy pass (Sprint 3) made this the one canonical short form.
+ */
+export function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: TZ,
+  });
+}
+
 /** "5 minutes ago" / "2 days ago" / "3 hours from now". Matches the §4 micro-copy style. */
 export function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();

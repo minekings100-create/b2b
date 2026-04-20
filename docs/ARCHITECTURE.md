@@ -40,6 +40,46 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Product variants (Post-MVP Sprint 3)
+
+Same product in multiple sizes/formats is modelled as a **shared UUID**, not a separate grouping table. Products with equal `variant_group_id` are variants of each other; each keeps its own SKU, price, stock, and barcodes. Grouping is pure presentation — the cart, order, inventory, and invoicing flows do not look at `variant_group_id`.
+
+**Schema (`20260422000001_product_variants.sql`)**
+- `products.variant_group_id uuid` — null for non-variant products.
+- `products.variant_label text` — short display label ("500ml", "L"). Enforced by `products_variant_label_requires_group` CHECK: a label without a group is rejected at the Postgres layer.
+- Sparse partial index `products_variant_group_idx (variant_group_id) WHERE variant_group_id IS NOT NULL AND deleted_at IS NULL` keeps the sibling lookup cheap — most SKUs are ungrouped.
+
+**Data access**
+- `src/lib/db/variants.ts`:
+  - `siblingsByGroup(groupIds: string[])` — single query fan-out. Returns `Map<group_id, VariantSibling[]>`. Called once per catalog page load (for every grouped row) and once per detail-page open.
+  - `fetchVariantGroupOptions()` — admin-only picker for the edit drawer. Uses the service-role client for the same reason `/admin/*` surfaces do: we need visibility across all tenants regardless of who's editing.
+- `fetchCatalogPage` and `fetchProductDetail` now batch-sign image paths for main rows **and** siblings in one Storage call, so chip swaps stay network-free on the client.
+
+**Write path**
+- `src/lib/actions/variants.ts` exposes two admin-only Server Actions:
+  - `joinVariantGroup({ product_id, group_choice: uuid | "new", label })` — if `group_choice === "new"`, generates a fresh UUID server-side (never trust the client to allocate identifiers). Sets `variant_group_id` + `variant_label` on the target row. Audited as `variant_group_join`.
+  - `ungroupVariant({ product_id })` — nulls both columns on this product only. Siblings stay grouped. Audited as `variant_group_leave`.
+- Both actions revalidate `/catalog` and redirect back to the admin edit drawer (`?eid=<id>`).
+
+**UI**
+- `CatalogTile` (client) — grid-view tile. Owns `currentId` state for the displayed variant; `VariantSwitcher` chip row renders when `siblings.length > 1`. Uses `useSearchParams` to build its detail-drawer href so the server parent doesn't need to pass a function prop (that fails at the RSC boundary).
+- `VariantGroupSection` (client) — admin edit drawer section. Two presentations: "in group" (label input + siblings list + Save label + Ungroup), "ungrouped" (group dropdown with "Create new group" + label input + Join group). Ungroup is a sibling `<form>` next to the Save button — no nested forms.
+- Detail drawer renders a sibling list under Availability with `label · price` per chip, each linking to its sibling's `?pid=`.
+
+**Why no `variant_groups` table?** One table fewer, one join fewer, and the only group-level property we'd ever add (shared display name) is already derivable from any sibling's `name`. If a real multi-column group property ever needs to exist, migrating the UUID to an FK is trivial — all existing rows already share the same ID.
+
+## First-login welcome overlay (Post-MVP Sprint 3)
+
+Role-aware toast-style card rendered in `(app)/layout.tsx` when `session.profile.welcome_dismissed_at == null`. Intentionally not a route — dismissal is a one-shot self-update that the parent layout reads on the next render.
+
+**Schema (`20260422000002_user_welcome_dismissed.sql`)** — one column: `users.welcome_dismissed_at timestamptz`. Nullable; set on dismissal. No new RLS — `users_update_self` (`id = auth.uid()`) covers the write.
+
+**Copy resolution** — `src/lib/welcome/copy.ts` returns a `{ title, body }` per role. When a user holds multiple roles (legal per §5), the most elevated one wins: `super_admin > administration > hq_operations_manager > branch_manager > packer > branch_user`. A defensive fallback handles the (shouldn't-happen) empty-roles case.
+
+**Dismissal** — `dismissWelcome` Server Action stamps `welcome_dismissed_at = NOW()`, writes one `audit_log` row (`action="welcome_dismissed"`), and revalidates the root layout. The client component calls it inside `useTransition` and optimistically hides so the click feels instant.
+
+**Role semantics vs ARIA** — the overlay is `role="region"` with an `aria-live="polite"` + `aria-label`. Intentionally not `role="dialog"` because (a) it's non-blocking — nothing is gated behind dismissal, and (b) many existing Playwright specs use `getByRole("dialog")` strict selectors for real modals.
+
 ## Invoice email preview + bulk reminder (Post-MVP Sprint 2)
 
 Admin-only. Two features sharing one preview component and one email-render path:

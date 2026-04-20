@@ -1,5 +1,59 @@
 # Changelog
 
+## [Post-MVP Sprint 3] — 2026-04-22 — UX polish (variants + welcome + copy pass)
+
+Three independent polish shipments in one PR. Two migrations (reviewed + approved before `db:push`): product variant grouping on `products`, and a new `welcome_dismissed_at` timestamp on `users`.
+
+### Product variants
+- New columns on `public.products`: `variant_group_id uuid` (shared across a group — no new table, the shared UUID **is** the group), `variant_label text` (short user-facing label like `"500ml"` or `"L"`). Sparse partial index on `variant_group_id WHERE NOT NULL AND deleted_at IS NULL`. CHECK constraint refuses an orphaned label without a group.
+- `lib/db/variants.ts` — `siblingsByGroup(groupIds)` fans out a list of group ids into their members in one query, and `fetchVariantGroupOptions()` lists all existing groups for the admin "join existing group" picker.
+- `fetchCatalogPage` and `fetchProductDetail` now include siblings on every grouped row, with image URLs pre-signed alongside the main row so client-side chip swaps are network-free.
+- **Catalog grid tile** — new `CatalogTile` client component renders a chip row (`data-testid="variant-switcher"`) under the name on any product with ≥2 siblings. Clicking a chip swaps SKU, price, stock, and image in place. The wrapping `<Link>` retargets to the selected sibling's `?pid=` so opening the detail drawer lands on the right SKU.
+- **Detail drawer** — siblings listed below the availability block with `label · price` per chip; each chip links to its own sibling.
+- **Admin edit drawer** — new **Variant group** section: pre-filled label + siblings list when already in a group (with an **Ungroup** action); a **Join group** form offering "Create new group" + the list of existing groups when not in a group. Two Server Actions with audit: `joinVariantGroup` (generates a fresh UUID server-side when `group_choice === "new"`) and `ungroupVariant` (nulls both columns on this product only — siblings stay grouped).
+- **Seed examples**: `scripts/seed.ts` now upserts two example groups with stable UUIDs:
+  - All-purpose cleaner (500ml / 1L / 5L) — `11111111-1111-4111-8111-111111111111`
+  - Nitrile glove (M / L) — `22222222-2222-4222-8222-222222222222`
+
+Cart and order flow untouched — grouping is pure presentation. Each variant is still its own SKU with its own price, stock, and barcodes.
+
+### First-login welcome overlay
+- New column `public.users.welcome_dismissed_at timestamptz`. Nullable — set on dismissal. Existing `users_update_self` RLS covers it (self-update on `id = auth.uid()`).
+- `lib/welcome/copy.ts` — role-prioritised copy (`super_admin > administration > hq_operations_manager > branch_manager > packer > branch_user`). Covered by 8 Vitest cases in `tests/lib/welcome-copy.test.ts`.
+- `WelcomeOverlay` client component — bottom-right card on desktop (`sm:right-4 sm:bottom-4`), full-width sheet on mobile. `role="region" aria-live="polite"` (intentionally **not** `role="dialog"` — it's non-blocking, and reserving `dialog` for real modals keeps existing Playwright queries working).
+- `dismissWelcome` Server Action stamps the column + writes an `audit_log` row (`action="welcome_dismissed"`). Dismissal runs in a React `useTransition`; the overlay optimistically hides so the click feels instant.
+- Seed script stamps the timestamp for demo users so returning-dev sessions and Playwright specs that don't care aren't surprised by it. Specs that exercise the overlay reset to null before each run.
+
+### English copy polish pass
+Targeted polish — not a rewrite. Strings changed:
+
+| File | Before | After |
+|---|---|---|
+| `src/lib/actions/returns.ts:246` | `Failed to create return` | `Couldn't create return — please try again` |
+| `src/lib/actions/invoices.ts:182` | `Failed to create invoice` | `Couldn't create invoice — please try again` |
+| `src/app/api/notifications/me/route.ts:22` | `Failed to load notifications` | `Couldn't load notifications` |
+| `src/app/(app)/users/[id]/page.tsx:179` | ISO date `2026-04-22` | `22 Apr 2026` via new `formatShortDate` helper |
+| `src/app/(app)/catalog/import/_components/import-client.tsx:267` | Hand-rolled `€{price}` | `formatCents(…)` (€ space-prefix, nl-NL) |
+
+Five user-facing strings changed. Added `formatShortDate(iso)` in `src/lib/dates/format.ts` so any future ISO leak has a canonical helper to adopt. Existing `formatCents` (nl-NL `Intl.NumberFormat`) already renders `€ 12,50` — the copy brief's "€ before number with space" requirement is satisfied wherever the helper is used.
+
+### Tests
+- **Vitest**: 116 tests pass (+8 new, `welcome-copy.test.ts`).
+- **Playwright full 3-viewport** (variants + welcome are new UI surfaces — responsive layout is in scope per CLAUDE.md):
+  - `tests-e2e/product-variants.spec.ts` — chip swap in place, detail drawer sibling list, admin drawer variant-group section (grouped + ungrouped branches). 12 cases (4 × 3).
+  - `tests-e2e/welcome-overlay.spec.ts` — per-role copy, dismiss persistence (polls DB before navigating to avoid transition race), X close. 12 cases (4 × 3).
+- **Regression sweep (desktop-1440)**: catalog.spec, catalog-crud, catalog-inventory-barcodes all green. Tests using `getByRole("dialog")` stayed stable because the overlay uses `role="region"`.
+
+### Decisions made without asking
+- **No `variant_groups` table.** Grouping is a shared UUID; semantically identical to a 1:N FK but one less join and one less table. The only "group property" we could imagine (a shared display name) is derivable from any sibling's `name` field.
+- **`useSearchParams` inside `CatalogTile`** rather than passing a function prop. Functions can't cross the Server/Client boundary in the App Router (first Playwright run caught this with a runtime error). The tile is now fully self-contained.
+- **Welcome overlay uses `role="region"`, not `role="dialog"`.** Semantically it's a passive toast-style card — not a required decision surface. Also: 5 existing spec files use `getByRole("dialog")` and would hit strict-mode violations otherwise.
+- **Priority resolution on multi-role users.** A user with both `super_admin` and `packer` assignments sees the super-admin welcome (most elevated wins). Tested.
+- **Seed pre-dismisses the overlay for demo users.** Every local dev sign-in would otherwise start with the card. Tests that exercise the overlay reset per-test.
+- **Copy pass scope kept tight.** The brief says "polish, not rewrite" — changed 5 strings and added 1 helper. The existing empty-state and button copy is already verb-first and consistent.
+
+---
+
 ## [Post-MVP Sprint 2] — 2026-04-21 — admin efficiency (bulk reminders + email preview)
 
 Two admin-facing efficiency features. No migration. Reuses the existing reminder-email render + transport (`renderInvoiceOverdueReminder` + `notify`).

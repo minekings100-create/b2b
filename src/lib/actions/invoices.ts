@@ -179,7 +179,7 @@ export async function createDraftInvoiceFromOrder(
   if (invErr || !invoice) {
     return {
       ok: false,
-      error: invErr?.message ?? "Failed to create invoice",
+      error: invErr?.message ?? "Couldn't create invoice — please try again",
     };
   }
 
