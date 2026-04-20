@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
-import { Users as UsersIcon } from "lucide-react";
+import Link from "next/link";
+import { Plus, Users as UsersIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -10,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { isAdmin } from "@/lib/auth/roles";
 import { fetchAdminUsers } from "@/lib/db/users-admin";
@@ -54,11 +57,25 @@ export default async function UsersPage({
             : "Everyone with a role in the app. Archive hides a user from pickers without deleting their history."
         }
         actions={
-          <ArchivedToggle
-            showArchived={showArchived}
-            hrefOn="/users?archived=1"
-            hrefOff="/users"
-          />
+          <div className="flex items-center gap-2">
+            <ArchivedToggle
+              showArchived={showArchived}
+              hrefOn="/users?archived=1"
+              hrefOff="/users"
+            />
+            {!showArchived ? (
+              <Link
+                href="/users/new"
+                className={cn(
+                  buttonVariants({ variant: "primary", size: "default" }),
+                )}
+                data-testid="invite-user-button"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Invite user
+              </Link>
+            ) : null}
+          </div>
         }
       />
       <div className="px-gutter py-6">

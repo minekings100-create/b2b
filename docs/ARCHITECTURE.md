@@ -40,6 +40,26 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## User + branch lifecycle (Post-MVP Sprint 1)
+
+Admin surfaces for inviting / editing users, managing their role assignments, triggering password resets, and disabling login. Plus branch create / edit on top of the 7b-2b archive/restore surface.
+
+**Login disabled vs archived** — two separate flags on `public.users`:
+- `deleted_at IS NOT NULL` — archived. Hidden from pickers; user can still sign in (no identity-layer change). Reversible via Restore.
+- `login_disabled = true` — admin disabled the account. User literally can't sign in. `auth.users` stays untouched.
+
+Enforcement paths for `login_disabled`:
+1. **Post sign-in** — `signInWithPassword` in `src/app/(auth)/login/actions.ts` checks the flag right after a successful auth call. If set, `signOut()` immediately + returns "This account is deactivated. Contact an administrator."
+2. **Mid-session** — `getUserWithRoles` in `src/lib/auth/session.ts` reads the flag alongside the profile. If set, `signOut()` + returns null, which every page gate already handles by redirecting to `/login`.
+3. **Magic-link** — same post-sign-in path runs when the callback completes.
+
+Auth admin API touchpoints live only in Server Actions:
+- `auth.admin.inviteUserByEmail` — invite flow, sends set-password email
+- `auth.admin.listUsers` — duplicate-email pre-check before invite
+- `auth.resetPasswordForEmail` — admin-triggered password reset
+
+**Last-super-admin guard** (`src/lib/auth/last-super-admin.ts`) — single shared helper that counts users with `role='super_admin'` AND `user_branch_roles.deleted_at IS NULL` AND `users.deleted_at IS NULL` AND `users.login_disabled = false`. Called before removing a super_admin role assignment and before flipping `login_disabled` on. Blocks the op if it would leave the system with zero active super_admins.
+
 ## Pack claim + rush (Phase 8)
 
 Packer v2 adds two independent behaviours on top of the Phase 4 pick/pack flow:

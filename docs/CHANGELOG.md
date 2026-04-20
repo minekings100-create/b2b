@@ -1,5 +1,75 @@
 # Changelog
 
+## [Post-MVP Sprint 1] — 2026-04-21 — user + branch lifecycle + admin password reset
+
+Admin-facing user and branch lifecycle. Replaces "archive / restore only" (from 7b-2b) with full create, edit, role management, password reset, and a new login-disabled toggle.
+
+### New admin surfaces
+- **`/users/new`** — invite form. Admin sets email, full name, and one or more role assignments. `inviteUserByEmail` creates the `auth.users` row and sends a Supabase set-password email. Duplicate-email check runs first and surfaces a friendly error.
+- **`/users/[id]`** — detail page. Edit profile (`full_name`), add / remove role assignments (branch-scoped and global), send a password-reset email, disable / re-enable login.
+- **`/branches/new`** and **`/branches/[id]`** — create + edit for every column already in the `branches` schema (`name`, `branch_code`, addresses, KvK, VAT, IBAN, monthly budget, payment term).
+
+### New column
+- `public.users.login_disabled` (boolean, default false). Dedicated flag — NOT `auth.users.banned_until`. The auth middleware / login action / `getUserWithRoles` all check this flag and force-sign-out if set. Keeps Supabase Auth as the identity layer and our table as the authorization layer. Migration `20260421000002_user_login_disabled.sql` + partial index.
+
+### Server Actions (10 new) — every one writes `audit_log`
+
+| Action | Audit action name |
+|---|---|
+| `inviteUser` | `user_invited` |
+| `updateUserProfile` | `user_updated` |
+| `addRole` (global) | `user_role_added` |
+| `addRole` (branch-scoped) | `user_branch_added` |
+| `removeRole` (global) | `user_role_removed` |
+| `removeRole` (branch-scoped) | `user_branch_removed` |
+| `triggerPasswordReset` | `user_password_reset_triggered` |
+| `deactivateLogin` | `user_deactivated` |
+| `reactivateLogin` | `user_reactivated` |
+| `createBranch` | `branch_created` |
+| `updateBranch` | `branch_updated` |
+
+### Supabase Auth admin API touchpoints (confirmed in PR thread)
+| Call | Purpose |
+|---|---|
+| `auth.admin.inviteUserByEmail(email, { data: { full_name } })` | Invite — creates `auth.users` + sends set-password email |
+| `auth.admin.listUsers()` | Duplicate-email pre-check before invite |
+| `auth.resetPasswordForEmail(email)` | Admin-triggered password reset email |
+
+Not used in this PR: `auth.admin.updateUserById` with `banned_until` (explicitly replaced by `login_disabled` per reviewer request), `auth.admin.deleteUser` (hard delete stays on BACKLOG).
+
+### Last-super-admin guard
+`src/lib/auth/last-super-admin.ts` — single shared helper. Counts active super_admin assignments where:
+- `user_branch_roles.role='super_admin'` AND `deleted_at IS NULL`, AND
+- owning `users` row has `deleted_at IS NULL` AND `login_disabled = false`
+
+Called before `removeRole` (when removing a super_admin assignment) and before `deactivateLogin`. Returns true only if the op would drop the active super_admin count to zero. On trip, the action returns a friendly error and makes no DB change.
+
+Edge cases:
+- A user with multiple super_admin rows (global + branch-scoped) can still have one removed as long as they retain at least one.
+- Deactivating a user who isn't currently an active super_admin is never gated (no effect on the count).
+- Self-deactivate is additionally blocked at the top of `deactivateLogin` before the guard even runs.
+
+### Auth middleware / session
+`getUserWithRoles` now reads `login_disabled` in the same query it loads the profile. If set, `supabase.auth.signOut()` runs immediately and the function returns null. The `/login` action runs the same check post-sign-in and surfaces "This account is deactivated. Contact an administrator." The three doors (post-sign-in, mid-session, cold start) are all covered by the same flag.
+
+### Tests
+- **Vitest** 108/108 — 4 new in `tests/lib/last-super-admin.test.ts` covering the guard's four branches against real DB.
+- **Playwright** new spec `tests-e2e/post-mvp-1-user-branch-lifecycle.spec.ts`.
+  - **3-viewport (per CLAUDE.md for new responsive UI)**: invite form rendering, branch create + edit round-trip with audit rows.
+  - **Desktop-1440** only (access + edge): non-admin redirect, duplicate-email error, admin-non-super can't grant super_admin (skipped if no `administration` user in seed), deactivate + reactivate round-trip, deactivated user sees "account deactivated" on login, self-deactivate blocked, last-super-admin guard trips.
+  - **Gated by `PHASE8_INVITE_SMOKE=1`**: end-to-end `inviteUserByEmail` test. Supabase's default email pipeline caps at 3 emails/hour, so repeated test runs blow through the cap. Flip the env var to exercise end-to-end in a fresh hour window.
+- Smoke on `archive-restore-7b2b`, `admin-surfaces-7b2a`, `phase-1-happy-path` — 23/23 pass.
+
+### What deferred to Sprint 2+
+- **Full user lifecycle v2** — email change flow (requires re-auth round-trip), MFA management, impersonation-for-support.
+- **Hard delete** — still in BACKLOG with type-to-confirm.
+- **Branch sortable list + search** — /branches stays alphabetical by `branch_code` for now; pagination + sort can land if the branch count grows past ~50.
+- **Audit-log viewer filters** for the new action names — `/admin/audit-log` already accepts arbitrary `action=` param, so the new names are viewable today; pre-filled filter chips could be a polish pass.
+- **`[data-branch]` → role scoping for future per-branch admins** — current Server Actions gate on `isAdmin` only. A narrower "can manage users for branch X" concept would need RLS + guard extension.
+- **Bulk invite** — CSV upload of multiple invites at once. Nice-to-have; single-invite covers the real onboarding flow.
+
+---
+
 ## [Phase 8] — 2026-04-21 — packer workflow v2 (claim system + rush flag + pick-any)
 
 Post-MVP enhancement. Three additions to the packer experience, one PR.

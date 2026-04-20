@@ -4,6 +4,18 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+/**
+ * Post-MVP Sprint 1 — deactivated-login check.
+ *
+ * After a successful Supabase Auth sign-in, look up `login_disabled`
+ * on the matching `public.users` row. If true, sign the session
+ * straight back out and surface a clean error on /login. Keeps Auth
+ * as the identity layer and our table as the authorization layer.
+ */
+const DEACTIVATED_MSG =
+  "This account is deactivated. Contact an administrator.";
 
 const PasswordSchema = z.object({
   email: z.string().email(),
@@ -29,8 +41,23 @@ export async function signInWithPassword(
   }
 
   const supabase = createClient();
-  const { error } = await supabase.auth.signInWithPassword(parsed.data);
+  const { data, error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error) return { error: error.message };
+
+  // Post-sign-in deactivation check — admin client bypasses RLS since
+  // we may not trust the just-created session yet.
+  if (data.user) {
+    const adm = createAdminClient();
+    const { data: row } = await adm
+      .from("users")
+      .select("login_disabled")
+      .eq("id", data.user.id)
+      .maybeSingle();
+    if (row?.login_disabled) {
+      await supabase.auth.signOut();
+      return { error: DEACTIVATED_MSG };
+    }
+  }
 
   redirect("/dashboard");
 }

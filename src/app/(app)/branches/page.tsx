@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
-import { Building2 } from "lucide-react";
+import Link from "next/link";
+import { Building2, Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -10,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { isAdmin } from "@/lib/auth/roles";
 import { fetchAdminBranches } from "@/lib/db/branches-admin";
@@ -49,11 +52,25 @@ export default async function BranchesPage({
             : "One HQ, many branches. Archive hides a branch from pickers without deleting historical orders."
         }
         actions={
-          <ArchivedToggle
-            showArchived={showArchived}
-            hrefOn="/branches?archived=1"
-            hrefOff="/branches"
-          />
+          <div className="flex items-center gap-2">
+            <ArchivedToggle
+              showArchived={showArchived}
+              hrefOn="/branches?archived=1"
+              hrefOff="/branches"
+            />
+            {!showArchived ? (
+              <Link
+                href="/branches/new"
+                className={cn(
+                  buttonVariants({ variant: "primary", size: "default" }),
+                )}
+                data-testid="create-branch-button"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create branch
+              </Link>
+            ) : null}
+          </div>
         }
       />
       <div className="px-gutter py-6">
