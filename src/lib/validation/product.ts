@@ -25,7 +25,10 @@ const priceCents = z.preprocess((v) => {
 
 export const VAT_RATES = [0, 9, 21] as const;
 
-export const ProductCreateInput = z.object({
+// Base object kept unrefined so it remains `.extend()`-able for the
+// update schema. The variant-label / variant-group cross-field rule is
+// applied with `.superRefine()` at the two exported schemas.
+const ProductBase = z.object({
   sku: z
     .string()
     .min(1, "SKU is required")
@@ -47,12 +50,29 @@ export const ProductCreateInput = z.object({
     ),
   min_order_qty: z.coerce.number().int().min(1, "Min order ≥ 1"),
   max_order_qty: emptyToNull(z.coerce.number().int().min(1)),
+  variant_group_id: emptyToNull(z.string().uuid("Invalid variant group")),
+  variant_label: emptyToNull(z.string().max(30, "Variant label ≤ 30 chars")),
 });
+
+const variantPairRule = (
+  v: { variant_group_id: string | null; variant_label: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (v.variant_label != null && v.variant_group_id == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["variant_label"],
+      message: "Variant label needs a variant group",
+    });
+  }
+};
+
+export const ProductCreateInput = ProductBase.superRefine(variantPairRule);
 export type ProductCreateInputT = z.infer<typeof ProductCreateInput>;
 
-export const ProductUpdateInput = ProductCreateInput.extend({
+export const ProductUpdateInput = ProductBase.extend({
   id: z.string().uuid(),
-});
+}).superRefine(variantPairRule);
 export type ProductUpdateInputT = z.infer<typeof ProductUpdateInput>;
 
 export const ProductArchiveInput = z.object({

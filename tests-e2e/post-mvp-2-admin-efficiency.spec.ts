@@ -113,8 +113,8 @@ test.describe("Sprint 2 — email preview modal (responsive)", () => {
     await page.getByTestId("bulk-send-reminder").click();
     const modal = page.getByTestId("email-preview-modal");
     await expect(modal).toBeVisible({ timeout: 10_000 });
-    // Bulk copy mentions "applies to N of M".
-    await expect(modal).toContainText(/Applies to/i);
+    // Bulk copy mentions "Sends to N of M" (PR #40 — per-invoice nav).
+    await expect(modal).toContainText(/Sends to \d+ of \d+/i);
     await modal.getByRole("button", { name: "Cancel" }).click();
   });
 });

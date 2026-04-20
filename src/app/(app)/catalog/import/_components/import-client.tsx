@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { formatCents } from "@/lib/money";
 import {
   commitImport,
   previewImport,
@@ -248,7 +249,6 @@ function PreviewRowView({ row }: { row: PreviewRow }) {
     );
   }
 
-  const price = (row.data.unit_price_cents / 100).toFixed(2);
   return (
     <TableRow>
       <TableCell className="font-numeric text-fg-muted">
@@ -264,7 +264,7 @@ function PreviewRowView({ row }: { row: PreviewRow }) {
       </TableCell>
       <TableCell className="font-numeric">{row.sku}</TableCell>
       <TableCell className="truncate">{row.data.name}</TableCell>
-      <TableCell numeric>€{price}</TableCell>
+      <TableCell numeric>{formatCents(row.data.unit_price_cents)}</TableCell>
       <TableCell numeric className="text-fg-muted">
         {row.data.vat_rate}%
       </TableCell>

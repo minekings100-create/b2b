@@ -385,30 +385,6 @@ export type Database = {
         }
         Relationships: []
       }
-      public_holidays: {
-        Row: {
-          created_at: string
-          date: string
-          id: string
-          name: string
-          region: string
-        }
-        Insert: {
-          created_at?: string
-          date: string
-          id?: string
-          name: string
-          region?: string
-        }
-        Update: {
-          created_at?: string
-          date?: string
-          id?: string
-          name?: string
-          region?: string
-        }
-        Relationships: []
-      }
       order_edit_history: {
         Row: {
           after_snapshot: Json
@@ -622,6 +598,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "orders_claimed_by_user_id_fkey"
+            columns: ["claimed_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "orders_created_by_user_id_fkey"
             columns: ["created_by_user_id"]
             isOneToOne: false
@@ -631,6 +614,13 @@ export type Database = {
           {
             foreignKeyName: "orders_last_edited_by_user_id_fkey"
             columns: ["last_edited_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_rush_set_by_user_id_fkey"
+            columns: ["rush_set_by_user_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -879,6 +869,8 @@ export type Database = {
           unit: string
           unit_price_cents: number
           updated_at: string | null
+          variant_group_id: string | null
+          variant_label: string | null
           vat_rate: number
         }
         Insert: {
@@ -896,6 +888,8 @@ export type Database = {
           unit?: string
           unit_price_cents?: number
           updated_at?: string | null
+          variant_group_id?: string | null
+          variant_label?: string | null
           vat_rate?: number
         }
         Update: {
@@ -913,6 +907,8 @@ export type Database = {
           unit?: string
           unit_price_cents?: number
           updated_at?: string | null
+          variant_group_id?: string | null
+          variant_label?: string | null
           vat_rate?: number
         }
         Relationships: [
@@ -924,6 +920,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      public_holidays: {
+        Row: {
+          created_at: string
+          date: string
+          id: string
+          name: string
+          region: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          id?: string
+          name: string
+          region?: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          id?: string
+          name?: string
+          region?: string
+        }
+        Relationships: []
       }
       return_items: {
         Row: {
@@ -1188,6 +1208,7 @@ export type Database = {
           ui_catalog_view: Database["public"]["Enums"]["ui_catalog_view"]
           ui_theme: Database["public"]["Enums"]["ui_theme"]
           updated_at: string | null
+          welcome_dismissed_at: string | null
         }
         Insert: {
           active?: boolean
@@ -1202,6 +1223,7 @@ export type Database = {
           ui_catalog_view?: Database["public"]["Enums"]["ui_catalog_view"]
           ui_theme?: Database["public"]["Enums"]["ui_theme"]
           updated_at?: string | null
+          welcome_dismissed_at?: string | null
         }
         Update: {
           active?: boolean
@@ -1216,6 +1238,7 @@ export type Database = {
           ui_catalog_view?: Database["public"]["Enums"]["ui_catalog_view"]
           ui_theme?: Database["public"]["Enums"]["ui_theme"]
           updated_at?: string | null
+          welcome_dismissed_at?: string | null
         }
         Relationships: []
       }
@@ -1228,10 +1251,13 @@ export type Database = {
       cleanup_old_notifications: {
         Args: {
           p_cutoff: string
-          p_retention_days: number
           p_max_count: number
+          p_retention_days: number
         }
-        Returns: { deleted_count: number; capped: boolean }[]
+        Returns: {
+          capped: boolean
+          deleted_count: number
+        }[]
       }
       current_user_has_branch: {
         Args: { target_branch: string }

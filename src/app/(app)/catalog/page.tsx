@@ -17,6 +17,7 @@ import {
   fetchCatalogPage,
   fetchProductDetail,
 } from "@/lib/db/catalog";
+import { fetchVariantGroupOptions } from "@/lib/db/variants";
 import { formatCents } from "@/lib/money";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
@@ -93,6 +94,11 @@ export default async function CatalogPage({
     formMode === "edit" && searchParams.eid
       ? await fetchProductDetail(searchParams.eid)
       : null;
+
+  // Variant-group options only matter when the admin edit drawer is open —
+  // skip the extra query on the common read path.
+  const variantGroupOptions =
+    formMode === "edit" ? await fetchVariantGroupOptions() : [];
 
   const hasPrev = pageIdx > 0;
   const hasNext = (pageIdx + 1) * pageSize < total;
@@ -184,7 +190,7 @@ export default async function CatalogPage({
       ) : (
         <>
           {viewMode === "grid" ? (
-            <CatalogGrid rows={rows} rowHref={rowHref} selectedId={searchParams.pid} />
+            <CatalogGrid rows={rows} selectedId={searchParams.pid} />
           ) : (
             <div className="px-gutter py-4">
               <div className="overflow-hidden rounded-lg ring-1 ring-border">
@@ -314,6 +320,7 @@ export default async function CatalogPage({
           mode="edit"
           categories={categories}
           initial={formInitial}
+          variantGroupOptions={variantGroupOptions}
         />
       ) : null}
     </>

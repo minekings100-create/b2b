@@ -243,7 +243,7 @@ export async function createReturn(
   if (insErr || !inserted) {
     return {
       ok: false,
-      error: insErr?.message ?? "Failed to create return",
+      error: insErr?.message ?? "Couldn't create return — please try again",
     };
   }
 

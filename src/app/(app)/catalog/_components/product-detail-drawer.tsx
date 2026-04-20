@@ -107,6 +107,48 @@ export function ProductDetailDrawer({
 
         {canOrder ? <AddToCart product={product} /> : null}
 
+        {product.variants.length > 1 ? (
+          <section>
+            <p className="label-meta mb-2">Variants</p>
+            <ul
+              className="flex flex-wrap gap-1.5"
+              data-testid="detail-variants"
+            >
+              {product.variants.map((v) => {
+                const active = v.id === product.id;
+                const href = (() => {
+                  const next = new URLSearchParams(params.toString());
+                  next.set("pid", v.id);
+                  return `/catalog?${next.toString()}`;
+                })();
+                return (
+                  <li key={v.id}>
+                    <Link
+                      href={href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "inline-flex items-center rounded-md px-2 py-1 text-xs ring-1 ring-inset transition-colors duration-120",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
+                        active
+                          ? "bg-accent/10 text-accent ring-accent/40"
+                          : "bg-surface text-fg-muted ring-border hover:bg-surface-elevated hover:text-fg",
+                      )}
+                    >
+                      <span className="font-numeric">
+                        {v.variant_label ?? v.sku}
+                      </span>
+                      <span className="mx-1.5 text-fg-subtle">·</span>
+                      <span className="font-numeric">
+                        {formatCents(v.unit_price_cents)}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
+
         {product.description ? (
           <section>
             <p className="label-meta mb-1">Description</p>

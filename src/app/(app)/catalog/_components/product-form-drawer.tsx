@@ -4,9 +4,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import { Drawer } from "@/components/ui/drawer";
 import type { CatalogCategory, ProductDetail } from "@/lib/db/catalog";
+import type { VariantGroupOption } from "@/lib/db/variants";
 import { ProductForm } from "./product-form";
 import { InventorySection } from "./inventory-section";
 import { BarcodesSection } from "./barcodes-section";
+import { VariantGroupSection } from "./variant-group-section";
 import { ArchiveSection } from "./archive-section";
 
 type Mode = "create" | "edit";
@@ -20,10 +22,12 @@ export function ProductFormDrawer({
   mode,
   categories,
   initial,
+  variantGroupOptions,
 }: {
   mode: Mode;
   categories: CatalogCategory[];
   initial?: ProductDetail;
+  variantGroupOptions?: VariantGroupOption[];
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -51,6 +55,10 @@ export function ProductFormDrawer({
           <>
             <InventorySection product={initial} />
             <BarcodesSection productId={initial.id} initial={initial.barcodes} />
+            <VariantGroupSection
+              product={initial}
+              groupOptions={variantGroupOptions ?? []}
+            />
             <ArchiveSection id={initial.id} />
           </>
         ) : null}

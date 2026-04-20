@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { isAdmin, isSuperAdmin } from "@/lib/auth/roles";
+import { formatShortDate } from "@/lib/dates/format";
 import {
   fetchAdminBranchesLite,
   fetchAdminUserDetail,
@@ -176,7 +177,7 @@ export default async function UserDetailPage({
                           : "global"}
                       </TableCell>
                       <TableCell className="font-numeric text-xs text-fg-muted">
-                        {new Date(a.created_at).toISOString().slice(0, 10)}
+                        {formatShortDate(a.created_at)}
                       </TableCell>
                     </TableRow>
                   ))
