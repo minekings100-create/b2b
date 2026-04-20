@@ -251,6 +251,47 @@ export async function archiveProduct(
   redirect("/catalog");
 }
 
+export async function restoreProduct(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const session = await getUserWithRoles();
+  if (!session) redirect("/login");
+  if (!isAdmin(session.roles)) return { error: "Forbidden" };
+
+  const parsed = ProductArchiveInput.safeParse({ id: formData.get("id") });
+  if (!parsed.success) return { error: "Invalid id" };
+
+  const supabase = createClient();
+
+  const { data: prior } = await supabase
+    .from("products")
+    .select("sku, name, active, deleted_at")
+    .eq("id", parsed.data.id)
+    .maybeSingle();
+  if (!prior) return { error: "Product not found" };
+  if (prior.deleted_at === null) return { error: "Product is not archived" };
+
+  const { error } = await supabase
+    .from("products")
+    .update({ active: true, deleted_at: null })
+    .eq("id", parsed.data.id)
+    .not("deleted_at", "is", null);
+  if (error) return { error: error.message };
+
+  await writeAudit({
+    entity_type: "product",
+    entity_id: parsed.data.id,
+    action: "restore",
+    actor_user_id: session.user.id,
+    before_json: prior as unknown as Json,
+    after_json: { active: true, deleted_at: null } as Json,
+  });
+
+  revalidatePath("/catalog");
+  redirect("/catalog?archived=1");
+}
+
 async function writeAudit(row: {
   entity_type: string;
   entity_id: string;

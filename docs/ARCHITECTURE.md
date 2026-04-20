@@ -40,6 +40,24 @@ Every entity that goes through a multi-actor lifecycle (orders, pallets, shipmen
 
 Phase 4 will use this for `pallets` (`pack`, `ship`) and `shipments` (`deliver`); Phase 5 for `invoices` (`invoice_issue`, `invoice_paid`) and `payments`; Phase 6 for `returns` (`return_open`, `return_approve`, `credit_note_issue`).
 
+## Archive / Restore UX (Phase 7b-2b)
+
+Every entity with a `deleted_at` column surfaces a consistent archive/restore pattern:
+
+- **URL-driven filter** via `?archived=1` on each list. Default (off) shows active rows only; on shows the soft-deleted set only. Survives refresh, shareable.
+- **Primitives:** `<ArchivedToggle>` and `<ArchivedBadge>` in `src/components/app/archived-primitives.tsx` — two tiny components used by every archive-aware list.
+- **Archive** = UPDATE `{ active: false, deleted_at: NOW() }`. **Restore** = inverse. Both write one `audit_log` row (`action='archive' | 'restore'`).
+- **Archive confirm** is a two-step inline swap on the row (no modal); **Restore** is single-click.
+- **Rendering:** archived rows get `opacity-60` to read visually distinct; the badge sits next to the row's primary column.
+
+Wired surfaces (all admin-only reads and writes):
+- `/catalog` — products. Archived view uses a dedicated `<ArchivedProductsTable>` (no click-through-to-detail).
+- `/catalog/categories` — categories. Archived view reuses the main table with the badge + Restore button.
+- `/branches` — NEW list page. Read-only attributes + archive/restore. Create/edit deferred until user provisioning phase.
+- `/users` — stub → full list. Self-archive blocked. Soft archive only — does NOT touch `auth.users`, so archived users with active sessions can still reach the app until their cookie expires.
+
+Implementation note on the UPDATE path for branches + users: `branches_update` / `users_update` RLS rejects column-level writes to `deleted_at` from the session client even for super_admin (other column updates pass). The archive/restore Server Actions use the service-role client for the UPDATE; `isAdmin(session.roles)` at the action layer is the security boundary. Audit row writes still go via the session client so `actor_user_id` binds to the authenticated user, not service role.
+
 ## Admin surfaces (Phase 7b-2a)
 
 Admin-only pages live under `/admin/<thing>`:

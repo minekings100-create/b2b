@@ -19,6 +19,8 @@ export type CatalogProduct = {
   category_name: string | null;
   image_path: string | null;
   image_url: string | null;
+  /** Populated only when fetched via `includeArchived` — null for active rows. */
+  deleted_at: string | null;
   inventory: {
     quantity_on_hand: number;
     quantity_reserved: number;
@@ -39,6 +41,11 @@ export type CatalogQuery = {
   page?: number;
   /** Hard cap per page. */
   pageSize?: number;
+  /**
+   * When true, return ONLY soft-deleted rows (`deleted_at IS NOT NULL`).
+   * Admin-only UI surface. Phase 7b-2b.
+   */
+  archivedOnly?: boolean;
 };
 
 type RawInventory = {
@@ -60,6 +67,7 @@ type RawRow = {
   max_order_qty: number | null;
   category_id: string | null;
   image_path: string | null;
+  deleted_at: string | null;
   product_categories: { name: string } | null;
   // PostgREST returns a single object for 1:1 relationships (inventory's
   // FK on product_id is unique). When there is no matching row, it may
@@ -121,14 +129,18 @@ export async function fetchCatalogPage(
     .from("products")
     .select(
       `id, sku, name, description, unit, unit_price_cents, vat_rate,
-       min_order_qty, max_order_qty, category_id, image_path,
+       min_order_qty, max_order_qty, category_id, image_path, deleted_at,
        product_categories (name),
        inventory (quantity_on_hand, quantity_reserved, reorder_level, warehouse_location)`,
       { count: "exact" },
     )
-    .is("deleted_at", null)
-    .eq("active", true)
     .order("sku", { ascending: true });
+  if (query.archivedOnly) {
+    // Admin-only view — shows soft-deleted rows so they can be restored.
+    builder = builder.not("deleted_at", "is", null);
+  } else {
+    builder = builder.is("deleted_at", null).eq("active", true);
+  }
 
   if (query.q && query.q.trim().length > 0) {
     const term = query.q.trim().replace(/[,]/g, "");
@@ -172,6 +184,7 @@ export async function fetchCatalogPage(
       category_name: row.product_categories?.name ?? null,
       image_path: row.image_path,
       image_url: row.image_path ? signedUrlMap.get(row.image_path) ?? null : null,
+      deleted_at: row.deleted_at,
       inventory: inv,
       available,
       in_stock: available > 0,
@@ -196,24 +209,36 @@ export async function fetchCatalogCategories(): Promise<CatalogCategory[]> {
   return data ?? [];
 }
 
-export type CatalogCategoryWithCount = CatalogCategory & { product_count: number };
+export type CatalogCategoryWithCount = CatalogCategory & {
+  product_count: number;
+  deleted_at: string | null;
+};
 
 /**
  * Categories page needs a "how many products reference each" count so admins
  * can judge delete impact. One round-trip via PostgREST's `count` aggregate.
+ *
+ * Phase 7b-2b — `archivedOnly` flips to the soft-deleted set for the
+ * admin-only archived view. Default (false) keeps the active-only
+ * behaviour the rest of the app depends on.
  */
-export async function fetchCategoriesWithCounts(): Promise<
-  CatalogCategoryWithCount[]
-> {
+export async function fetchCategoriesWithCounts(
+  opts: { archivedOnly?: boolean } = {},
+): Promise<CatalogCategoryWithCount[]> {
   const supabase = createClient();
-  const { data, error } = await supabase
+  let builder = supabase
     .from("product_categories")
     .select(
-      `id, name, sort_order,
+      `id, name, sort_order, deleted_at,
        products (count)`,
     )
-    .is("deleted_at", null)
     .order("sort_order", { ascending: true });
+  if (opts.archivedOnly) {
+    builder = builder.not("deleted_at", "is", null);
+  } else {
+    builder = builder.is("deleted_at", null);
+  }
+  const { data, error } = await builder;
   if (error) throw error;
 
   return (data ?? []).map((row) => {
@@ -222,6 +247,7 @@ export async function fetchCategoriesWithCounts(): Promise<
       id: row.id,
       name: row.name,
       sort_order: row.sort_order,
+      deleted_at: row.deleted_at,
       product_count: products?.[0]?.count ?? 0,
     };
   });
@@ -239,7 +265,7 @@ export async function fetchProductDetail(
     .from("products")
     .select(
       `id, sku, name, description, unit, unit_price_cents, vat_rate,
-       min_order_qty, max_order_qty, category_id, image_path,
+       min_order_qty, max_order_qty, category_id, image_path, deleted_at,
        product_categories (name),
        inventory (quantity_on_hand, quantity_reserved, reorder_level, warehouse_location),
        product_barcodes (id, barcode, unit_multiplier)`,
@@ -282,6 +308,7 @@ export async function fetchProductDetail(
       row.image_path && signedUrlMap
         ? signedUrlMap.get(row.image_path) ?? null
         : null,
+    deleted_at: row.deleted_at,
     inventory: inv,
     available,
     in_stock: available > 0,

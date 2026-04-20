@@ -3,6 +3,7 @@
 import {
   BarChart3,
   Box,
+  Building2,
   CalendarDays,
   FileText,
   History,
@@ -153,6 +154,13 @@ export function AppSidebar({
               icon={<Users className="h-4 w-4" />}
               label="Users"
               active={is("/users")}
+            />
+            <SidebarItem
+              as="a"
+              href="/branches"
+              icon={<Building2 className="h-4 w-4" />}
+              label="Branches"
+              active={is("/branches")}
             />
             <SidebarItem
               as="a"

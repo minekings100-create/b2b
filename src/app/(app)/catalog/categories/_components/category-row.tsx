@@ -3,7 +3,7 @@
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, X, Check } from "lucide-react";
+import { ArchiveRestore, Check, Pencil, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +11,10 @@ import {
   TableRow,
   TableRowActions,
 } from "@/components/ui/table";
+import { ArchivedBadge } from "@/components/app/archived-primitives";
 import {
   archiveCategory,
+  restoreCategory,
   updateCategory,
   type CategoryFormState,
 } from "@/lib/actions/categories";
@@ -22,11 +24,15 @@ export type CategoryRowData = {
   name: string;
   sort_order: number;
   product_count: number;
+  archived: boolean;
 };
 
 export function CategoryRow({ row }: { row: CategoryRowData }) {
   const [mode, setMode] = useState<"view" | "edit" | "confirm-archive">("view");
 
+  if (row.archived) {
+    return <ArchivedViewRow row={row} />;
+  }
   if (mode === "edit") {
     return <EditRow row={row} onDone={() => setMode("view")} />;
   }
@@ -34,6 +40,59 @@ export function CategoryRow({ row }: { row: CategoryRowData }) {
     return <ArchiveRow row={row} onCancel={() => setMode("view")} />;
   }
   return <ViewRow row={row} onEdit={() => setMode("edit")} onArchive={() => setMode("confirm-archive")} />;
+}
+
+function ArchivedViewRow({ row }: { row: CategoryRowData }) {
+  const router = useRouter();
+  const [state, action] = useFormState<CategoryFormState, FormData>(
+    restoreCategory,
+    undefined,
+  );
+  const refreshed = useRef(false);
+  useEffect(() => {
+    if (state && "success" in state && !refreshed.current) {
+      refreshed.current = true;
+      router.refresh();
+    }
+  }, [state, router]);
+
+  return (
+    <TableRow className="opacity-60">
+      <TableCell numeric className="text-fg-muted">
+        {row.sort_order}
+      </TableCell>
+      <TableCell className="font-medium">
+        {row.name}
+        <ArchivedBadge />
+      </TableCell>
+      <TableCell numeric className="text-fg-muted">
+        {row.product_count}
+      </TableCell>
+      <TableCell>
+        <TableRowActions>
+          <form action={action}>
+            <input type="hidden" name="id" value={row.id} />
+            <RestoreBtn label={`Restore ${row.name}`} />
+          </form>
+        </TableRowActions>
+        {state && "error" in state && state.error ? (
+          <span role="alert" className="block text-[11px] text-danger">
+            {state.error}
+          </span>
+        ) : null}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function RestoreBtn({ label }: { label: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="secondary" size="sm" loading={pending} aria-label={label}>
+      <ArchiveRestore className="h-3.5 w-3.5" />
+      Restore
+    </Button>
+  );
 }
 
 function ViewRow({

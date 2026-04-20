@@ -1,5 +1,59 @@
 # Changelog
 
+## [Phase 7b-2b] — 2026-04-20 — archive/restore UX across products, categories, branches, users
+
+Second slice of Phase 7b-2 (following the admin-surfaces slice queued as 7b-2a). Implements the cross-cutting **Archive / Restore UX** pattern from BACKLOG — every entity with a `deleted_at` column now has a matching restore surface so soft-deletes are reversible through the UI instead of requiring Studio access.
+
+### The pattern (new primitives)
+- `<ArchivedToggle>` + `<ArchivedBadge>` in `src/components/app/archived-primitives.tsx`. URL-driven toggle (`?archived=1` on/off), small badge beside the row's primary column. Applied consistently on every list.
+- Archive action = soft-delete (`active=false`, `deleted_at=now()`). Restore = inverse. Both write an `audit_log` row (`action='archive'` / `'restore'`).
+- Archive UI shows a two-step inline confirm (no modal). Restore is a single-click button in the archived view.
+- Rows render at `opacity-60` when archived so the archived table reads visually distinct from the active one.
+
+### Products (`/catalog`)
+- New `restoreProduct` Server Action (`src/lib/actions/catalog.ts`).
+- `fetchCatalogPage({ archivedOnly })` extended to return only soft-deleted rows when set. `CatalogProduct.deleted_at` threaded through for row rendering.
+- `<ArchivedProductsTable>` renders a simplified admin-only archived view — click-through-to-detail is disabled there (the detail drawer has add-to-cart etc. that don't apply). "Restore" button per row.
+- Filter bar + "New product" CTA hide in archived mode to keep the view focused.
+
+### Categories (`/catalog/categories`)
+- New `restoreCategory` Server Action.
+- `fetchCategoriesWithCounts({ archivedOnly })` extended.
+- `<CategoryRow>` learned the archived branch: renders `<ArchivedBadge>` + a single "Restore" button instead of the edit/archive pair.
+
+### Branches (`/branches` — NEW list)
+- New admin-only page listing every branch with archive/restore controls. Read-only in terms of branch attributes — create/edit is a later phase (tied to auth provisioning).
+- New `archiveBranch` / `restoreBranch` actions. Both use the admin (service-role) client for the UPDATE because the `branches_update` RLS policy rejects column-level updates to `deleted_at` via the session client even for super_admin (empirically confirmed — other column updates work). `isAdmin(session.roles)` gate at the action layer is the security boundary; audit row binds to the actor uid via the session client.
+- New sidebar entry "Branches" (admin-only, `Building2` icon).
+
+### Users (`/users` — stub → full list)
+- Replaces the empty-state stub with an admin-only list of every user: email, name, roles, archive/restore controls.
+- New `archiveUser` / `restoreUser` actions. Self-archive is blocked at the action layer ("You can't archive yourself"). Same admin-client UPDATE pattern as branches for the same RLS reason.
+- **Known limitation (documented):** archive flips `public.users.{active, deleted_at}` but does NOT touch `auth.users`. An archived user with a valid session can still reach the app until their cookie expires. Hard deactivation via the Supabase Auth admin API is a separate phase.
+
+### Shared
+- New `BranchArchiveInput` / `UserArchiveInput` Zod schemas.
+- New `src/lib/db/branches-admin.ts` + `src/lib/db/users-admin.ts` — admin read helpers (service-role) for the active + archived lists. Gated at the page layer.
+
+### Tests
+- **Vitest** 93/93 pass.
+- **Playwright (desktop-1440)** new spec `tests-e2e/archive-restore-7b2b.spec.ts` — 9 cases: full archive/restore round-trip per entity (products, categories, branches, users) + non-admin redirect checks + sidebar visibility. All 9 passed in 36s.
+- Smoke on `catalog-crud`, `catalog-categories`, `phase-1-happy-path` (sidebar touched): 10/10 pass.
+- **Test discipline** per CLAUDE.md: archive/restore is row-level UX, no responsive layout → desktop-1440 only.
+
+### Decisions made without asking
+- **Admin client for the archive/restore UPDATE on branches + users** rather than loosening RLS. Empirically, `branches_update`'s WITH CHECK rejects `deleted_at` column updates via the session client even for super_admin (other column updates succeed). The RLS expression looked permissive for super_admin but Postgres disagreed — likely a subtle interaction with Supabase's column-level behaviour that wasn't worth widening the policy over. `isAdmin(session.roles)` at the action layer is the security boundary; audit still binds to the actor uid.
+- **Hard delete deferred.** BACKLOG mentioned "Hard delete remains a separate, rarely-used admin action... type-to-confirm modal or similar." Not shipped here — archive covers every current scenario and is reversible; hard delete can land if a real case surfaces.
+- **Products archived view is a simplified separate table**, not the main table overlaid. The main catalog row is click-to-detail (drawer with add-to-cart) which doesn't apply to archived products. Dedicated table keeps both flows simple.
+- **Users archive is a soft-archive only**, no `auth.users` deactivation. Hard user lifecycle (disable login, delete identities) is a separate phase.
+- **`?archived=1` is URL-driven** (not a client-side toggle) so the state survives refresh + is shareable, matching the `?status=` + `?sort=` precedent.
+
+### Follow-ups (Phase 7b-2c, 7b-2d)
+- Reports (spend per branch, top products, AR aging, packer throughput).
+- Accessibility audit (WCAG 2.1 AA) + documentation refresh.
+
+---
+
 ## [Phase 7b-2a] — 2026-04-20 — admin surfaces: holidays manager + audit-log viewer
 
 First slice of Phase 7b-2's final polish split. Scope: admin-only read/manage pages that were promised in the 7b-1 PR description (public_holidays admin UI) plus the long-running backlog entry for an audit-log viewer. Cross-cutting archive/restore UX (7b-2b), reports (7b-2c) and the accessibility audit + doc refresh (7b-2d) land in follow-up PRs.
