@@ -279,3 +279,51 @@ Edit a `submitted` order before it crosses into `branch_approved`. Once branch-a
 - **On every merge:** append a row to the chronology and flip the sub-phase status in the roadmap. Update the "Active phase" / "Last merged PR" / "Next up" block at the top.
 - **On every renumbering:** update BACKLOG.md, cross-check this file, and note the rename in the journal line.
 - **When SPEC §11 changes:** call it out here with a link to the commit.
+
+---
+
+## MVP complete — 2026-04-20 (Phase 7b-2d)
+
+The procurement platform is **feature-complete for MVP launch**. Every phase listed in SPEC §11 (plus the mid-build adjustments for 1.5, 3.2.2 split, 3.4, and the Phase 7 a/b split) has merged. Post-MVP work lives in `docs/BACKLOG.md`.
+
+### What shipped (phase → PR)
+
+| Phase | Title | PR |
+|---|---|---|
+| 1.1–1.5 + demo | Foundation, auth, app shell, seed, schema scaffolding, rich demo data | #1–#6 |
+| 2.1–2.5 | Catalog browse, admin CRUD, inventory + barcodes, CSV import, categories | #7–#13 |
+| 3.1 | Cart + order submit | #14 |
+| 3.2.1 | Transparency + traceability polish | #15 |
+| 3.2.2a/b/c | HQ Manager role + two-step approval + auto-cancel cron | #16, #18, #19 |
+| 3.3.1/2/3a | Email infra + bell + per-user preferences + unsubscribe | #20, #22, #25 |
+| 3.4 | Order edit (pre-approval) | #26 |
+| 4 | Picking + packing | (Phase 4 PR) |
+| 5 | Invoicing | #27 |
+| 6 | Online payment + RMA | #28 |
+| fix | Invoice draft cancel UX | #29 |
+| 7a | Polish — dashboards + sortable headers + HQ stock preview | #30 |
+| 7b-1 | Crons — NL holidays + DST gate + 90-day cleanup | #31 |
+| 7b-2a | Admin surfaces — holidays + audit log viewer | #32 |
+| 7b-2b | Archive/restore UX across 4 entity types | #33 |
+| 7b-2c | Reports + CSV export | #34 |
+| 7b-2d | WCAG 2.1 AA a11y audit + doc refresh (this PR) | — |
+
+### What's explicitly deferred to post-MVP
+
+See `docs/BACKLOG.md` for full detail. Summary:
+
+- **Phase 3.3.3b** — polished email templates + `/privacy` + `/cookies` + full legal footer (waits on real company fill-ins).
+- **Phase 2.6 (proposed)** — inbound goods & replenishment (suppliers + POs + receiving against PO).
+- **Phase 8 (proposed)** — in-portal messaging between roles.
+- **User + branch create/edit screens** — only archive/restore surfaced in 7b-2b; full lifecycle (incl. Supabase Auth admin-API user provisioning) is a separate phase.
+- **Reports — v2** — charts, time-series, point-in-time AR aging.
+- **Happy-path coverage gap-filling** — representative Playwright slices per phase; universal-every-flow coverage was not the gate.
+- **English copy review** — functional copy ships; tone/wording polish is a follow-on.
+- **Low-stock alerts** — plumbed (`reorder_level` column + `StockPill`), no proactive notification.
+- **Hard-delete admin path** — archive covers every current need; hard delete lands if a real case surfaces.
+
+### Final test counts
+
+- **Vitest** — 12 suite files, 104 tests (unit + RLS).
+- **Playwright** — 31 spec files, spanning auth, catalog, cart, approvals, packing, invoicing, payments, RMA, notifications, dashboards, reports, archive/restore, admin surfaces, crons, a11y.
+- Default CI cadence (per CLAUDE.md): desktop-1440 only unless the PR touches responsive layout or a11y, in which case all 3 viewports (desktop-1440, tablet-768, mobile-375) are run.

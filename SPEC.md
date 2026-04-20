@@ -469,7 +469,24 @@ Auto-draft invoice on ship, PDF generation, issue + send, admin invoice queue, m
 Mollie iDEAL integration + webhook, returns workflow, credit notes.
 
 ### Phase 7 — Polish
-Reports, low-stock alerts, audit-log viewer, accessibility audit, full Playwright coverage of happy paths, English copy review, documentation in `/docs`. Also picks up the cross-cutting backlog items recorded in `docs/BACKLOG.md` (sortable column headers, role-specific dashboards, NL holidays config, DST-aware cron, archive/restore UX).
+
+Shipped across two sub-phases:
+- **Phase 7a** — role-aware dashboards, URL-driven sortable column headers on `/orders` / `/invoices` / `/returns`, HQ inline stock preview on the second-step approve form.
+- **Phase 7b** (split into 4 sub-PRs):
+  - **7b-1** — NL public holidays (`public_holidays` table + seed), DST-aware cron scheduling (double-schedule + `isExpectedAmsterdamHour` gate), 90-day destructive notifications cleanup cron (atomic via modifying CTEs).
+  - **7b-2a** — `/admin/holidays` (super_admin CRUD) + `/admin/audit-log` (admin viewer with filters + pagination).
+  - **7b-2b** — archive/restore UX pattern across products, categories, branches, users. Shared `<ArchivedToggle>` + `<ArchivedBadge>` primitives. New `/branches` + `/users` list pages (read-only attributes; create/edit deferred).
+  - **7b-2c** — reports: spend by branch, top products, AR aging (admin-only), packer throughput. CSV export per report.
+  - **7b-2d** — WCAG 2.1 AA accessibility audit (axe-playwright), doc refresh, final MVP closure.
+
+**Deferred from the original Phase 7 scope** (see `docs/BACKLOG.md` for details):
+- Low-stock alerts.
+- Full Playwright coverage of every happy path (covered in representative slices per phase; universal coverage was never the gate).
+- English copy review pass (final tone/wording polish — MVP copy is functional).
+- Polished email templates + `/privacy` + `/cookies` legal pages (tracked as Phase 3.3.3b — waits on real company fill-in values).
+- User/branch create + edit screens (only archive/restore surfaced in 7b-2b; full lifecycle tied to Supabase Auth admin API, separate phase).
+- Chart visualisations for reports (tables only in v1).
+- Point-in-time AR aging (current-now snapshot only).
 
 ## 12. Acceptance Criteria (per phase)
 

@@ -41,8 +41,13 @@ export function SortableHeader<TCol extends string>({
 }) {
   const dir = sortIndicator(current, column);
   const href = nextSortHref(basePath, current, column, preserveParams);
+  // aria-sort must sit on the <th> (columnheader role) — it's not a
+  // valid attribute on <a>. Phase 7b-2d a11y.
+  const ariaSort: "ascending" | "descending" | "none" =
+    dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none";
   return (
     <TableHead
+      aria-sort={ariaSort}
       className={cn(
         align === "right" ? "text-right" : "text-left",
         className,
@@ -59,13 +64,6 @@ export function SortableHeader<TCol extends string>({
         )}
         data-testid={`sort-${column}`}
         data-sort-state={dir}
-        aria-sort={
-          dir === "asc"
-            ? "ascending"
-            : dir === "desc"
-              ? "descending"
-              : "none"
-        }
       >
         {align === "right" ? <Indicator dir={dir} /> : null}
         <span>{children}</span>
