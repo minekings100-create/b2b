@@ -168,3 +168,44 @@ export async function archiveCategory(
   revalidatePath("/catalog/categories");
   return { success: true, id: parsed.data.id };
 }
+
+export async function restoreCategory(
+  _prev: CategoryFormState,
+  formData: FormData,
+): Promise<CategoryFormState> {
+  const session = await getUserWithRoles();
+  if (!session) redirect("/login");
+  if (!isAdmin(session.roles)) return { error: "Forbidden" };
+
+  const parsed = CategoryArchiveInput.safeParse({ id: formData.get("id") });
+  if (!parsed.success) return { error: "Invalid id" };
+
+  const supabase = createClient();
+  const { data: prior } = await supabase
+    .from("product_categories")
+    .select("name, sort_order, deleted_at")
+    .eq("id", parsed.data.id)
+    .maybeSingle();
+  if (!prior) return { error: "Category not found" };
+  if (prior.deleted_at === null) return { error: "Category is not archived" };
+
+  const { error } = await supabase
+    .from("product_categories")
+    .update({ deleted_at: null })
+    .eq("id", parsed.data.id)
+    .not("deleted_at", "is", null);
+  if (error) return { error: error.message };
+
+  await supabase.from("audit_log").insert({
+    entity_type: "product_category",
+    entity_id: parsed.data.id,
+    action: "restore",
+    actor_user_id: session.user.id,
+    before_json: prior as unknown as Json,
+    after_json: { deleted_at: null } as Json,
+  });
+
+  revalidatePath("/catalog");
+  revalidatePath("/catalog/categories");
+  return { success: true, id: parsed.data.id };
+}

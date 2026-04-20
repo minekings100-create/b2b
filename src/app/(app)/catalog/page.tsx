@@ -20,6 +20,7 @@ import {
 import { formatCents } from "@/lib/money";
 import { getUserWithRoles } from "@/lib/auth/session";
 import { hasAnyRole, isAdmin } from "@/lib/auth/roles";
+import { ArchivedToggle } from "@/components/app/archived-primitives";
 import { CatalogFilters } from "./_components/catalog-filters";
 import { CatalogRow } from "./_components/catalog-row";
 import { StockPill } from "./_components/stock-pill";
@@ -28,6 +29,7 @@ import { ProductFormDrawer } from "./_components/product-form-drawer";
 import { ProductThumb } from "./_components/product-thumb";
 import { CatalogGrid } from "./_components/catalog-grid";
 import { ViewToggle } from "./_components/view-toggle";
+import { ArchivedProductsTable } from "./_components/archived-products-table";
 
 export const metadata = { title: "Catalog" };
 
@@ -39,6 +41,7 @@ type SearchParams = {
   pid?: string;
   new?: string;
   eid?: string;
+  archived?: string;
 };
 
 export default async function CatalogPage({
@@ -48,19 +51,25 @@ export default async function CatalogPage({
 }) {
   const pageIdx = Number(searchParams.page ?? 0) || 0;
   const pageSize = 50;
+  const session = await getUserWithRoles();
+  const admin = session ? isAdmin(session.roles) : false;
 
-  const [session, categories, { rows, total }] = await Promise.all([
-    getUserWithRoles(),
+  // Archived view: admin-only. Non-admins land on a URL with ?archived=1
+  // → redirect to the normal view. No security issue (the DB fetch
+  // would still respect RLS), just a UX footgun.
+  const showArchived = admin && searchParams.archived === "1";
+
+  const [categories, { rows, total }] = await Promise.all([
     fetchCatalogCategories(),
     fetchCatalogPage({
-      q: searchParams.q,
-      categoryId: searchParams.cat,
-      inStockOnly: searchParams.stock === "1",
+      q: showArchived ? undefined : searchParams.q,
+      categoryId: showArchived ? undefined : searchParams.cat,
+      inStockOnly: !showArchived && searchParams.stock === "1",
       page: pageIdx,
       pageSize,
+      archivedOnly: showArchived,
     }),
   ]);
-  const admin = session ? isAdmin(session.roles) : false;
   const canOrder = session
     ? hasAnyRole(session.roles, ["branch_user", "branch_manager"])
     : false;
@@ -110,12 +119,23 @@ export default async function CatalogPage({
   return (
     <>
       <PageHeader
-        title="Catalog"
-        description={`${total.toLocaleString("nl-NL")} SKUs available`}
+        title={showArchived ? "Catalog — archived" : "Catalog"}
+        description={
+          showArchived
+            ? `${total.toLocaleString("nl-NL")} archived product${total === 1 ? "" : "s"}`
+            : `${total.toLocaleString("nl-NL")} SKUs available`
+        }
         actions={
           <div className="flex items-center gap-2">
-            <ViewToggle current={viewMode} />
             {admin ? (
+              <ArchivedToggle
+                showArchived={showArchived}
+                hrefOn="/catalog?archived=1"
+                hrefOff="/catalog"
+              />
+            ) : null}
+            {!showArchived ? <ViewToggle current={viewMode} /> : null}
+            {admin && !showArchived ? (
               <>
                 <Link
                   href="/catalog/categories"
@@ -143,20 +163,24 @@ export default async function CatalogPage({
           </div>
         }
       />
-      <CatalogFilters categories={categories} />
+      {!showArchived ? <CatalogFilters categories={categories} /> : null}
 
       {rows.length === 0 ? (
         <div className="px-gutter py-10">
           <EmptyState
             icon={<Box className="h-5 w-5" />}
-            title="No products match"
+            title={showArchived ? "No archived products" : "No products match"}
             description={
-              searchParams.q || searchParams.cat || searchParams.stock
-                ? "Try clearing the filters."
-                : "The catalog is empty. Run the seed script to populate it."
+              showArchived
+                ? "Archived products will show up here when an admin archives one."
+                : searchParams.q || searchParams.cat || searchParams.stock
+                  ? "Try clearing the filters."
+                  : "The catalog is empty. Run the seed script to populate it."
             }
           />
         </div>
+      ) : showArchived ? (
+        <ArchivedProductsTable rows={rows} />
       ) : (
         <>
           {viewMode === "grid" ? (
