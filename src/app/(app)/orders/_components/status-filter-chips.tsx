@@ -117,7 +117,6 @@ export function StatusFilterChips({
                     key={chip.value}
                     href={href}
                     data-active={isActive || undefined}
-                    aria-pressed={isActive}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
                       "rounded-full px-3 py-1 text-xs font-medium ring-1 transition-colors duration-150",

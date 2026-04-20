@@ -212,26 +212,50 @@ _Captured: 2026-04-19._
 
 **Revisit trigger:** after the first real customer uses the system in production for 4+ weeks, ask whether they wished they could message inside the portal. If yes, build. If they shrug, this stays on the backlog.
 
-## Cross-cutting
+## Post-MVP (queued 2026-04-20, after Phase 7b-2d)
 
-### Archive / Restore UX pattern
-_Captured: 2026-04-18._
+These items were either explicit scope cuts during MVP build-out or surfaced during the Phase 7 polish pass.
 
-Every entity that supports soft-delete today (`deleted_at` + `active=false`) is already reversible at the data level, but no screen exposes the restore path. This gap is **cross-cutting** — the same pattern should apply to every archivable entity.
+### User + branch full lifecycle (create + edit + role assignment)
+_Captured: 2026-04-20 (Phase 7b-2b carry-over)._
 
-**Affects:** products, categories, branches, users — and suppliers once the proposed Phase 2.6 lands.
+Phase 7b-2b shipped `/users` and `/branches` as read-only lists with archive/restore. Create + edit + role assignment was deferred because it wraps Supabase Auth admin API (auth.users provisioning, email verification, password resets) — a different integration shape from table CRUD. Minimum viable lifecycle:
 
-**Pattern:**
-- Each list view gains a **"Show archived"** filter toggle (default off).
-- Archived rows render at **reduced opacity** and carry an **"Archived"** badge.
-- Each archived row has a **"Restore"** action (admin-only).
-- Restore clears `deleted_at`, sets `active = true`, writes an `audit_log` row with `action='restore'` (new action name; the tables already accept arbitrary action strings).
-- **Hard delete** remains a separate, rarely-used admin action for genuinely unwanted data (consent: type-to-confirm modal or similar).
+- Invite user by email (creates `auth.users` + triggers `public.users` row); set initial `full_name`, role assignments, branch_ids.
+- Edit user's role assignments (adds / removes rows in `user_branch_roles` with audit).
+- Password reset flow from the admin surface.
+- Hard deactivation that also disables `auth.users` login (not just the soft `public.users.active=false` that 7b-2b's archive does).
+- Branch CRUD — current schema supports it (nullable columns already in place); just needs the UI + Server Actions.
 
-**Scope decision (deferred):** implement as a small dedicated phase between Phase 6 and Phase 7, or absorb into Phase 7 polish. Pick when we get there.
+### Hard delete with type-to-confirm
+_Captured: 2026-04-20._
 
-**Design pointers:**
-- Keep the list toggle URL-driven (`?archived=1`) so the state survives refresh and is shareable.
-- Reuse existing tokens; the "Archived" badge should use `Badge variant="neutral" dot={false}` with 60–70% opacity on the row.
-- Per-entity Server Actions already return `{ success: true }` patterns that the restore actions can mirror.
-- Server Actions should re-check `isAdmin` plus the existing RLS policies; category and product RLS covers this already, branches/users need a review once implemented.
+Phase 7b-2b left archive as reversible; hard delete deferred. Useful when:
+- A test fixture leaked into production and needs to be permanently removed.
+- A row was archived in error and you want to fully drop it (not just restore + re-archive).
+
+Pattern: admin-only action behind a type-to-confirm modal ("Type `{entity_name}` to delete"). Writes a final `audit_log` row with `action='hard_delete'` and full `before_json` so the deletion is itself traceable.
+
+### Reports v2 — charts + time-series + point-in-time aging
+_Captured: 2026-04-20 (Phase 7b-2c carry-over)._
+
+Phase 7b-2c shipped four table-based reports with CSV export. The tables answer "who / what / how much" but not "trend". Post-MVP items:
+
+- Time-series line charts (spend per branch MoM; packer throughput week-over-week).
+- Point-in-time AR aging — current 7b-2c snapshot answers "what's outstanding NOW"; finance will eventually want "what was outstanding on 2026-01-31" which requires paid-date awareness in the bucketing logic.
+- Chart rendering — `recharts` or similar; defer until a real user asks.
+- Low-stock alert feed — plumbed (`reorder_level` column + `StockPill`) but no proactive notification; add on the admin dashboard.
+
+### English copy review pass
+_Captured: 2026-04-20 (Phase 7 scope carry-over)._
+
+MVP copy is functional but wasn't tone-reviewed end-to-end. A single-shot pass covering:
+- Error messages (consistent "couldn't do X — Y" framing).
+- Empty-state descriptions (tone, length, calls-to-action).
+- Button labels (verb-first vs noun-first consistency).
+- Date + number formatting (Dutch locale where appropriate: 12-04-2026 vs 2026-04-12; € before/after the number).
+
+### Archive / Restore UX pattern — SHIPPED
+_Captured: 2026-04-18. Shipped: 2026-04-20 in Phase 7b-2b (PR #33)._
+
+Cross-cutting archive/restore across products, categories, branches, users per the BACKLOG spec. See `docs/ARCHITECTURE.md` § "Archive / Restore UX" for the shipped pattern. Keeping this entry as a historical marker — any future entity needing soft-delete UX should mirror the same pattern.

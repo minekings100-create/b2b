@@ -107,6 +107,11 @@ export function NotificationsForm({ initial }: { initial: PrefShape }) {
                           defaultChecked={checked}
                           disabled={locked}
                           className="h-4 w-4 rounded border-border accent-accent disabled:cursor-not-allowed disabled:opacity-50"
+                          // The visible label for this checkbox is the row
+                          // title + column header; neither is wrapped by
+                          // the <label> element, so expose an explicit
+                          // accessible name for AT. Phase 7b-2d a11y.
+                          aria-label={`${label}, ${chan === "email" ? "email" : "in-app"}`}
                           aria-describedby={
                             locked ? `${inputId}-locked` : undefined
                           }

@@ -39,7 +39,7 @@ export function ArchivedToggle({
   return (
     <Link
       href={href}
-      aria-pressed={showArchived}
+      data-archived-toggle={showArchived ? "on" : "off"}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring",
         showArchived
