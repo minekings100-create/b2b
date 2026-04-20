@@ -1,5 +1,49 @@
 # Changelog
 
+## [Phase 7b-2a] — 2026-04-20 — admin surfaces: holidays manager + audit-log viewer
+
+First slice of Phase 7b-2's final polish split. Scope: admin-only read/manage pages that were promised in the 7b-1 PR description (public_holidays admin UI) plus the long-running backlog entry for an audit-log viewer. Cross-cutting archive/restore UX (7b-2b), reports (7b-2c) and the accessibility audit + doc refresh (7b-2d) land in follow-up PRs.
+
+### /admin/holidays — super_admin only
+- List of `public_holidays` rows grouped by year, with add / edit / delete actions. Super_admin-gated at the page layer; mutations also super_admin-gated (matches the RLS policy in migration `20260420000001`).
+- Server Actions: `createHoliday`, `updateHoliday`, `deleteHoliday` — each writes one `audit_log` row (`entity_type='public_holiday'`, `action='holiday_{created,updated,deleted}'`).
+- Validation: `PublicHolidayCreateInput`/`UpdateInput`/`DeleteInput` in `src/lib/validation/public-holiday.ts`. Date is `YYYY-MM-DD`-strict to dodge timezone parsing surprises.
+- Friendly duplicate handling on the `(region, date)` unique constraint: surfaces "A holiday for NL on 2026-04-27 already exists" rather than raw Postgres error text.
+- Clears the 7b-1 PR's "future-year seeding requires Studio access" follow-up. Existing 2026 + 2027 seed rows are editable through the UI now.
+
+### /admin/audit-log — admin (super_admin + administration)
+- Filter bar: entity_type, action, actor email, since/until (URL-driven, `?entity_type=...&action=...&actor_email=...&since=...&until=...&page=...`). Zod-parsed at the page trust boundary — same pattern as the `?status=` / `?sort=` filter parsers on lists.
+- Table: `created_at` (local time, narrow), actor email (resolved from `users` by a single IN query over the page's `actor_user_id` set), entity_type, action, entity_id (monospace).
+- Pagination: offset-based, 50 rows/page. "Page N of M" with ← Prev / Next → links that preserve active filters.
+- Empty states: one generic ("No audit rows match the current filters") and one helpful for an unknown actor_email ("No user with email 'x@y' — check spelling"). The latter short-circuits the DB query, so a typo doesn't return a full unfiltered set.
+- Admin-gate applied at the page layer even though RLS already scopes super_admin / administration / self — keeps non-admins from landing on a route that would otherwise return an empty-ish scoped view.
+
+### Sidebar
+- New "Audit log" entry in the Admin section (icon: `History`), visible to any admin.
+- New "Holidays" entry below it, visible only to super_admin (icon: `CalendarDays`). Matches the super_admin-only mutation surface.
+- Split enforced by a new `isSuperAdmin()` helper in `src/lib/auth/roles.ts` (stricter than `isAdmin()`, which also includes `administration`).
+
+### Tests
+- **Vitest** 93/93 (no logic that needs new unit cover — page-level gating + Server Actions are covered by e2e).
+- **Playwright (desktop-1440)** new spec `tests-e2e/admin-surfaces-7b2a.spec.ts` — 10 cases: 4 on holidays (super_admin gate, seed render, full CRUD + audit rows, duplicate handling), 3 on audit-log (non-admin redirect, filter by entity_type, helpful empty state for unknown actor), 3 sidebar visibility checks (super_admin / administration / branch_user). All 10 passed in 41s.
+- **Smoke** on `phase-1-happy-path` (4) + `phase-7a-polish` (9) because the sidebar was touched — all 13 still pass.
+- **Test discipline** per CLAUDE.md: both new pages are route-level tables; no responsive layout touched → desktop-1440 only.
+
+### Housekeeping
+- `.claude/` added to `.gitignore`. Local Claude Code state had been showing up as untracked across recent PRs.
+
+### Decisions made without asking
+- **Holidays are hard-deleted, not soft-deleted.** Unlike products / categories, a holiday row has no referential integrity to protect — the cron loads holidays by date at tick time, doesn't store FKs. Full delete keeps the admin UI simple. Audit row preserves the history.
+- **Audit-log viewer shows raw JSON via data attributes, not rendered.** v1 surfaces `entity_id` as a monospace cell and leaves the `before/after_json` payload out of the main table to keep rows scannable. Rendering the JSON is a minor future enhancement (per-row expand), not load-bearing for the audit trail's legal / operational value.
+- **Page size 50, offset-based pagination.** Cursor-based is marginally better at scale but offset is fine for the expected volume (thousands of rows/month) and matches the sortable-headers + filter-chip precedent.
+
+### Follow-ups (Phase 7b-2)
+- **7b-2b** — archive/restore UX for products, categories, branches, users per the BACKLOG pattern.
+- **7b-2c** — reports (spend per branch, top products, AR aging, packer throughput).
+- **7b-2d** — accessibility audit (WCAG 2.1 AA) + documentation refresh.
+
+---
+
 ## [Phase 7b-1] — 2026-04-20 — crons: NL holidays + DST gate + 90-day cleanup
 
 First half of the Phase 7b split (per the 7a PR's deferred list). Ships the cron + data infrastructure: NL public holidays, DST-aware schedule splitting, and the destructive 90-day notifications cleanup. UI polish (archive/restore, audit-log viewer, reports, accessibility audit, English copy review, doc refresh) lands in 7b-2.
